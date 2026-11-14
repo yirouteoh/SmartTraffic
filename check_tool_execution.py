@@ -45,7 +45,7 @@ print("\nEXECUTING GREEN TIME TOOL...")
 green_result = execute_tool(
     "green_time",
     {
-        "selected_phase": result["selected_phase"],
+        "phase": result["selected_phase"],
         **arguments,
     },
 )

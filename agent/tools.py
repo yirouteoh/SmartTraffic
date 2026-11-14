@@ -4,13 +4,12 @@ SmartTraffic - Python Tool Registry
 
 Responsibilities:
 1. Define tools available to the LLM.
-2. Maintain an allowlist.
-3. Validate function arguments.
+2. Maintain an allowlist of authorised functions.
+3. Use core.validation for argument validation.
 4. Execute authorised Python functions.
 """
 
 import json
-import math
 
 from typing import Any
 
@@ -19,6 +18,16 @@ from core.traffic_engine import (
     calculate_green_time,
 )
 
+from core.validation import (
+    validate_traffic_arguments,
+    validate_green_time_arguments,
+    parse_tool_arguments,
+)
+
+
+# ==========================================
+# 1. CONSTANTS
+# ==========================================
 
 TRAFFIC_DIRECTIONS = [
     "north",
@@ -29,10 +38,12 @@ TRAFFIC_DIRECTIONS = [
 
 
 # ==========================================
-# 1. TOOL SCHEMAS
+# 2. TOOL SCHEMAS
 # ==========================================
 
 def traffic_data_schema():
+    """Define the vehicle-count schema."""
+
     return {
         "type": "object",
         "properties": {
@@ -45,6 +56,8 @@ def traffic_data_schema():
 
 
 def waiting_time_schema():
+    """Define the waiting-time schema."""
+
     return {
         "type": "object",
         "properties": {
@@ -57,10 +70,11 @@ def waiting_time_schema():
 
 
 # ==========================================
-# 2. AVAILABLE TOOLS
+# 3. TOOLS AVAILABLE TO THE LLM
 # ==========================================
 
 AVAILABLE_TOOLS = [
+
     {
         "type": "function",
         "function": {
@@ -83,14 +97,15 @@ AVAILABLE_TOOLS = [
             },
         },
     },
+
     {
         "type": "function",
         "function": {
             "name": "green_time",
             "description": (
-                "Calculate green-light duration. "
-                "Provide the selected traffic phase using "
-                "the field phase or its accepted alias phaze."
+                "Calculate the recommended green-light duration "
+                "for the selected NS or EW traffic phase. "
+                "Provide exactly one phase field: phase or phaze."
             ),
             "parameters": {
                 "type": "object",
@@ -118,132 +133,67 @@ AVAILABLE_TOOLS = [
 
 
 # ==========================================
-# 3. TRAFFIC ARGUMENT VALIDATION
+# 4. AUTHORISED FUNCTION ALLOWLIST
 # ==========================================
 
-def validate_traffic_arguments(arguments: dict) -> None:
-
-    if not isinstance(arguments, dict):
-        raise ValueError("Arguments must be a dictionary.")
-
-    required_fields = {
-        "vehicle_counts",
-        "waiting_times",
-    }
-
-    if set(arguments.keys()) != required_fields:
-        raise ValueError("Missing or unexpected traffic fields.")
-
-    vehicles = arguments["vehicle_counts"]
-    waiting = arguments["waiting_times"]
-
-    if not isinstance(vehicles, dict):
-        raise ValueError("Vehicle counts must be a dictionary.")
-
-    if not isinstance(waiting, dict):
-        raise ValueError("Waiting times must be a dictionary.")
-
-    if set(vehicles.keys()) != set(TRAFFIC_DIRECTIONS):
-        raise ValueError("Invalid vehicle count directions.")
-
-    if set(waiting.keys()) != set(TRAFFIC_DIRECTIONS):
-        raise ValueError("Invalid waiting time directions.")
-
-    for direction in TRAFFIC_DIRECTIONS:
-
-        count = vehicles[direction]
-        wait = waiting[direction]
-
-        if isinstance(count, bool) or not isinstance(count, int):
-            raise ValueError(f"Invalid vehicle count for {direction}.")
-
-        if not 0 <= count <= 10000:
-            raise ValueError(f"Vehicle count outside permitted range: {direction}.")
-
-        if isinstance(wait, bool) or not isinstance(wait, (int, float)):
-            raise ValueError(f"Invalid waiting time for {direction}.")
-
-        if not math.isfinite(wait) or not 0 <= wait <= 86400:
-            raise ValueError(f"Waiting time outside permitted range: {direction}.")
+ALLOWED_FUNCTIONS = {
+    "traffic_priority",
+    "green_time",
+}
 
 
 # ==========================================
-# 4. TOOL ALLOWLIST AND EXECUTION
+# 5. TOOL EXECUTION
 # ==========================================
 
 def execute_tool(
     function_name: str,
     arguments: Any,
 ) -> dict:
+    """
+    Validate and execute an authorised Python function.
 
-    if isinstance(arguments, str):
-        try:
-            arguments = json.loads(arguments)
-        except json.JSONDecodeError:
-            raise ValueError("Invalid JSON arguments.")
+    The LLM cannot execute arbitrary Python code.
+    Only functions in the allowlist are permitted.
+    """
 
-    allowed_functions = {
-        "traffic_priority",
-        "green_time",
-    }
+    # Step 1: Check function name.
+    if function_name not in ALLOWED_FUNCTIONS:
+        raise ValueError(
+            f"Unauthorised function: {function_name}"
+        )
 
-    if function_name not in allowed_functions:
-        raise ValueError(f"Unauthorised function: {function_name}")
+    # Step 2: Parse JSON arguments.
+    arguments = parse_tool_arguments(arguments)
 
-    if not isinstance(arguments, dict):
-        raise ValueError("Tool arguments must be an object.")
-
+    # Step 3: Execute traffic priority.
     if function_name == "traffic_priority":
 
         validate_traffic_arguments(arguments)
 
-        return check_traffic_priority(
+        result = check_traffic_priority(
             vehicle_counts=arguments["vehicle_counts"],
             waiting_times=arguments["waiting_times"],
         )
 
+        return result
+
+    # Step 4: Execute green-time calculation.
     if function_name == "green_time":
 
-        allowed_fields = {
-            "phase",
-            "phaze",
-            "vehicle_counts",
-            "waiting_times",
-        }
-
-        required_fields = {
-            "vehicle_counts",
-            "waiting_times",
-        }
-
-        if not required_fields.issubset(arguments):
-            raise ValueError("Missing required traffic information.")
-
-        if not set(arguments).issubset(allowed_fields):
-            raise ValueError("Unexpected green-time arguments.")
-
-        if "phase" in arguments and "phaze" in arguments:
-            raise ValueError("Provide only one phase field.")
+        validate_green_time_arguments(arguments)
 
         phase = arguments.get(
             "phase",
             arguments.get("phaze"),
         )
 
-        if phase not in ("NS", "EW"):
-            raise ValueError("Missing or invalid traffic phase.")
-
-        traffic_arguments = {
-            "vehicle_counts": arguments["vehicle_counts"],
-            "waiting_times": arguments["waiting_times"],
-        }
-
-        validate_traffic_arguments(traffic_arguments)
-
-        return calculate_green_time(
+        result = calculate_green_time(
             selected_phase=phase,
-            vehicle_counts=traffic_arguments["vehicle_counts"],
-            waiting_times=traffic_arguments["waiting_times"],
+            vehicle_counts=arguments["vehicle_counts"],
+            waiting_times=arguments["waiting_times"],
         )
+
+        return result
 
     raise ValueError("Unsupported function.")
