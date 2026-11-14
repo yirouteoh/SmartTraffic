@@ -99,3 +99,90 @@ def test_pedestrian_clearance_allows_next_phase(simulator):
 def test_invalid_pedestrian_status(simulator):
     with pytest.raises(ValueError):
         simulator.update_pedestrian_request("yes")
+
+
+def test_automatic_vehicle_arrivals():
+    vehicles = {
+        "north": 0,
+        "south": 0,
+        "east": 0,
+        "west": 0,
+    }
+
+    waiting = {
+        "north": 0,
+        "south": 0,
+        "east": 0,
+        "west": 0,
+    }
+
+    simulator = TrafficSimulator(
+        vehicles,
+        waiting,
+        traffic_density="high",
+        random_seed=42,
+    )
+
+    simulator._advance_time(100)
+
+    assert simulator.get_performance_metrics()["total_arrivals"] > 0
+
+
+def test_random_seed_reproducibility():
+    vehicles = {d: 0 for d in
+                ("north", "south", "east", "west")}
+
+    waiting = {d: 0 for d in
+               ("north", "south", "east", "west")}
+
+    simulator1 = TrafficSimulator(
+        vehicles, waiting, "high", random_seed=42
+    )
+
+    simulator2 = TrafficSimulator(
+        vehicles, waiting, "high", random_seed=42
+    )
+
+    simulator1._advance_time(100)
+    simulator2._advance_time(100)
+
+    assert simulator1.vehicle_counts == simulator2.vehicle_counts
+
+
+def test_performance_metrics():
+    vehicles = {
+        "north": 10,
+        "south": 5,
+        "east": 8,
+        "west": 2,
+    }
+
+    waiting = {
+        "north": 20,
+        "south": 10,
+        "east": 15,
+        "west": 5,
+    }
+
+    simulator = TrafficSimulator(vehicles, waiting)
+
+    metrics = simulator.get_performance_metrics()
+
+    assert metrics["total_vehicles_waiting"] == 25
+    assert metrics["average_waiting_time"] == 12.5
+    assert metrics["total_arrivals"] == 0
+
+
+def test_invalid_traffic_density():
+    vehicles = {d: 0 for d in
+                ("north", "south", "east", "west")}
+
+    waiting = {d: 0 for d in
+               ("north", "south", "east", "west")}
+
+    with pytest.raises(ValueError):
+        TrafficSimulator(
+            vehicles,
+            waiting,
+            traffic_density="extreme",
+        )

@@ -2,13 +2,18 @@
 """
 SmartTraffic - Traffic Intersection Simulator
 
-Simulates:
+Features:
 - Four incoming traffic approaches
 - North-South and East-West traffic phases
-- Vehicle queues and waiting times
+- Automatic random vehicle arrivals
+- Low, medium and high traffic density
+- Vehicle queue and waiting-time updates
 - Traffic signal transitions
 - Pedestrian crossing restrictions
+- Reproducible simulation using random seeds
 """
+
+import random
 
 from typing import Dict, Any
 
@@ -30,8 +35,13 @@ PHASES = {
 YELLOW_DURATION = 3
 ALL_RED_DURATION = 2
 
-# Illustrative simulation service rate.
 VEHICLES_PER_SECOND = 0.5
+
+TRAFFIC_DENSITY = {
+    "low": 0.02,
+    "medium": 0.05,
+    "high": 0.10,
+}
 
 
 class TrafficSimulator:
@@ -40,12 +50,37 @@ class TrafficSimulator:
         self,
         vehicle_counts: Dict[str, int],
         waiting_times: Dict[str, float],
+        traffic_density: str = "medium",
+        random_seed: int = 42,
     ):
+        """Initialise the traffic simulation."""
+
         # Validate initial traffic information.
-        check_traffic_priority(vehicle_counts, waiting_times)
+        check_traffic_priority(
+            vehicle_counts,
+            waiting_times,
+        )
+
+        if traffic_density not in TRAFFIC_DENSITY:
+            raise ValueError(
+                "Traffic density must be low, medium or high."
+            )
+
+        if (
+            isinstance(random_seed, bool)
+            or not isinstance(random_seed, int)
+        ):
+            raise ValueError("Random seed must be an integer.")
 
         self.vehicle_counts = vehicle_counts.copy()
         self.waiting_times = waiting_times.copy()
+
+        self.traffic_density = traffic_density
+        self.arrival_probability = TRAFFIC_DENSITY[
+            traffic_density
+        ]
+
+        self.random = random.Random(random_seed)
 
         self.current_phase = "NS"
         self.current_signal_state = "GREEN"
@@ -55,13 +90,28 @@ class TrafficSimulator:
             "EW": 0,
         }
 
+        self.service_credit = {
+            direction: 0.0
+            for direction in DIRECTIONS
+        }
+
         self.pedestrian_crossing_active = False
         self.simulation_time = 0
+
+        self.total_arrivals = {
+            direction: 0
+            for direction in DIRECTIONS
+        }
+
+        self.total_departures = {
+            direction: 0
+            for direction in DIRECTIONS
+        }
 
         self.history = []
 
     def get_traffic_status(self) -> Dict[str, Any]:
-        """Return the current intersection status."""
+        """Return the current traffic status."""
 
         return {
             "vehicle_counts": self.vehicle_counts.copy(),
@@ -71,7 +121,10 @@ class TrafficSimulator:
             "pedestrian_crossing_active": (
                 self.pedestrian_crossing_active
             ),
+            "traffic_density": self.traffic_density,
             "simulation_time": self.simulation_time,
+            "total_arrivals": self.total_arrivals.copy(),
+            "total_departures": self.total_departures.copy(),
         }
 
     def update_pedestrian_request(self, active: bool) -> None:
@@ -83,6 +136,89 @@ class TrafficSimulator:
             )
 
         self.pedestrian_crossing_active = active
+
+    def generate_vehicle_arrivals(self) -> Dict[str, int]:
+        """
+        Generate random vehicle arrivals for each direction.
+
+        Each direction has an independent probability
+        of receiving one new vehicle per second.
+        """
+
+        arrivals = {}
+
+        for direction in DIRECTIONS:
+
+            if self.random.random() < self.arrival_probability:
+
+                self.vehicle_counts[direction] += 1
+
+                self.total_arrivals[direction] += 1
+
+                arrivals[direction] = 1
+
+            else:
+                arrivals[direction] = 0
+
+        return arrivals
+
+    def _advance_time(
+        self,
+        duration: int,
+        green_phase: str = None,
+    ) -> None:
+        """
+        Advance simulation time one second at a time.
+
+        New vehicles may arrive during each second.
+        Vehicles are served only during the active green phase.
+        """
+
+        if isinstance(duration, bool) or not isinstance(duration, int):
+            raise ValueError("Duration must be an integer.")
+
+        if duration < 0:
+            raise ValueError("Duration cannot be negative.")
+
+        if green_phase is not None and green_phase not in PHASES:
+            raise ValueError("Invalid green phase.")
+
+        for _ in range(duration):
+
+            # Generate new vehicle arrivals.
+            self.generate_vehicle_arrivals()
+
+            # Update waiting times and serve vehicles.
+            for direction in DIRECTIONS:
+
+                if self.vehicle_counts[direction] > 0:
+
+                    self.waiting_times[direction] += 1
+
+                if (
+                    green_phase is not None
+                    and direction in PHASES[green_phase]
+                ):
+
+                    self.service_credit[direction] += (
+                        VEHICLES_PER_SECOND
+                    )
+
+                    while (
+                        self.service_credit[direction] >= 1
+                        and self.vehicle_counts[direction] > 0
+                    ):
+
+                        self.vehicle_counts[direction] -= 1
+
+                        self.total_departures[direction] += 1
+
+                        self.service_credit[direction] -= 1
+
+                    if self.vehicle_counts[direction] == 0:
+                        self.waiting_times[direction] = 0
+
+            self.simulation_time += 1
 
     def _apply_signal_transition(
         self,
@@ -114,61 +250,15 @@ class TrafficSimulator:
             "reason": result["reason"],
         })
 
-    def _update_traffic_queues(
-        self,
-        served_phase: str,
-        green_duration: int,
-    ) -> None:
-        """Update vehicle queues and waiting times."""
-
-        served_directions = PHASES[served_phase]
-
-        for direction in DIRECTIONS:
-
-            if direction in served_directions:
-
-                vehicles_served = min(
-                    self.vehicle_counts[direction],
-                    int(green_duration * VEHICLES_PER_SECOND),
-                )
-
-                self.vehicle_counts[direction] -= (
-                    vehicles_served
-                )
-
-                # Approximate remaining vehicle waiting time.
-                if self.vehicle_counts[direction] == 0:
-                    self.waiting_times[direction] = 0
-
-                else:
-                    self.waiting_times[direction] = max(
-                        0,
-                        self.waiting_times[direction]
-                        - green_duration,
-                    )
-
-            else:
-                self.waiting_times[direction] += green_duration
-
-        # Update fairness information.
-        for phase in PHASES:
-
-            if phase == served_phase:
-                self.cycles_since_served[phase] = 0
-
-            else:
-                self.cycles_since_served[phase] += 1
-
     def run_control_cycle(self) -> Dict[str, Any]:
         """
         Execute one traffic control decision cycle.
 
-        The cycle:
-        1. Evaluates traffic priority.
-        2. Calculates green duration.
-        3. Performs GREEN -> YELLOW -> ALL_RED.
-        4. Attempts to activate the selected green phase.
-        5. Updates traffic queues.
+        1. Evaluate traffic priority.
+        2. Calculate green duration.
+        3. Perform signal transitions.
+        4. Activate the selected phase.
+        5. Generate arrivals and serve vehicles.
         """
 
         # Step 1: Evaluate traffic priority.
@@ -190,9 +280,7 @@ class TrafficSimulator:
 
         green_duration = timing["green_time_seconds"]
 
-        # Step 3: Complete the required signal transitions.
-
-        # GREEN -> YELLOW
+        # Step 3: GREEN -> YELLOW.
         if self.current_signal_state == "GREEN":
 
             self._apply_signal_transition(
@@ -200,9 +288,9 @@ class TrafficSimulator:
                 "YELLOW",
             )
 
-            self.simulation_time += YELLOW_DURATION
+            self._advance_time(YELLOW_DURATION)
 
-        # YELLOW -> ALL_RED
+        # Step 4: YELLOW -> ALL_RED.
         if self.current_signal_state == "YELLOW":
 
             self._apply_signal_transition(
@@ -210,7 +298,7 @@ class TrafficSimulator:
                 "ALL_RED",
             )
 
-            self.simulation_time += ALL_RED_DURATION
+            self._advance_time(ALL_RED_DURATION)
 
         elif self.current_signal_state != "ALL_RED":
 
@@ -218,7 +306,7 @@ class TrafficSimulator:
                 "Invalid simulator signal state."
             )
 
-        # Step 4: Attempt to activate the selected phase.
+        # Step 5: Activate selected green phase.
         try:
 
             self._apply_signal_transition(
@@ -236,15 +324,21 @@ class TrafficSimulator:
                 "traffic_status": self.get_traffic_status(),
             }
 
-        # Step 5: Simulate the green-light period.
-        self.simulation_time += green_duration
-
-        self._update_traffic_queues(
-            selected_phase,
+        # Step 6: Simulate green-light traffic movement.
+        self._advance_time(
             green_duration,
+            green_phase=selected_phase,
         )
 
-        # Return the completed simulation result.
+        # Update fairness information.
+        for phase in PHASES:
+
+            if phase == selected_phase:
+                self.cycles_since_served[phase] = 0
+
+            else:
+                self.cycles_since_served[phase] += 1
+
         return {
             "status": "SUCCESS",
             "selected_phase": selected_phase,
@@ -252,4 +346,26 @@ class TrafficSimulator:
             "decision": decision,
             "timing": timing,
             "traffic_status": self.get_traffic_status(),
+        }
+
+    def get_performance_metrics(self) -> Dict[str, Any]:
+        """Calculate basic simulation performance metrics."""
+
+        total_vehicles = sum(self.vehicle_counts.values())
+
+        total_waiting = sum(self.waiting_times.values())
+
+        total_arrivals = sum(self.total_arrivals.values())
+
+        total_departures = sum(self.total_departures.values())
+
+        return {
+            "simulation_time": self.simulation_time,
+            "total_vehicles_waiting": total_vehicles,
+            "average_waiting_time": round(
+                total_waiting / len(DIRECTIONS), 2
+            ),
+            "total_arrivals": total_arrivals,
+            "total_departures": total_departures,
+            "traffic_density": self.traffic_density,
         }
