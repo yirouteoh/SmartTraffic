@@ -73,6 +73,11 @@ CUSTOM_CSS = CSS_PATH.read_text(
 
 agent = SmartTrafficAgent()
 
+# Retain the most recent successfully completed simulation data.
+# This is process-wide because this project runs as a local, single-user
+# academic dashboard. Use gr.State if the app is later shared by users.
+LAST_VALID_SIMULATION_DATA = None
+
 DEFAULT_SCENARIO = (
     25, 90, 18, 65, 8, 25, 5, 15
 )
@@ -301,93 +306,66 @@ def validate_traffic_data(
 # 7. RENDER TRAFFIC CARDS
 # =====================================================
 
-def render_cards(
-    vehicle_counts=None,
-    waiting_times=None,
-):
-    """Render traffic cards using actual backend data."""
+def render_cards(vehicle_counts=None, waiting_times=None):
+    """Render traffic cards only when real data is supplied."""
 
-    if vehicle_counts is None:
-
-        vehicle_counts = {
-            "north": 25,
-            "south": 18,
-            "east": 8,
-            "west": 5,
-        }
-
-        waiting_times = {
-            "north": 90,
-            "south": 65,
-            "east": 25,
-            "west": 15,
-        }
-
-    if waiting_times is None:
-
-        raise ValueError(
-            "Waiting-time data is required."
+    if vehicle_counts is None or waiting_times is None:
+        return (
+            '<div class="panel">'
+            '<b>NO CURRENT TRAFFIC DATA</b>'
+            '<div>Submit a valid traffic request to display current conditions.</div>'
+            '</div>'
         )
 
+    validate_traffic_data(vehicle_counts, waiting_times)
     cards = []
 
-    for direction in (
-        "north",
-        "south",
-        "east",
-        "west",
-    ):
-
+    for direction in ("north", "south", "east", "west"):
         count = vehicle_counts[direction]
-
         waiting = waiting_times[direction]
 
         if count >= 20 or waiting >= 80:
-
-            level = "high"
-            tag = "HEAVY"
-
+            level, tag = "high", "HEAVY"
         elif count >= 10 or waiting >= 40:
-
-            level = "mid"
-            tag = "MODERATE"
-
+            level, tag = "mid", "MODERATE"
         else:
+            level, tag = "low", "LIGHT"
 
-            level = "low"
-            tag = "LIGHT"
-
-        percentage = min(
-            count / 30 * 100,
-            100,
-        )
-
+        percentage = min(count / 30 * 100, 100)
         cards.append(f"""
         <div class="direction-card lvl-{level}">
-
-            <div class="direction-name">
-                {direction.upper()} - {tag}
-            </div>
-
-            <div class="direction-info">
-                {count} <small>cars</small>
-            </div>
-
-            <div class="direction-wait">
-                Waiting {waiting:.1f} seconds
-            </div>
-
-            <div class="bar">
-                <span style="width:{percentage:.0f}%"></span>
-            </div>
-
+            <div class="direction-name">{direction.upper()} - {tag}</div>
+            <div class="direction-info">{count} <small>cars</small></div>
+            <div class="direction-wait">Waiting {waiting:.1f} seconds</div>
+            <div class="bar"><span style="width:{percentage:.0f}%"></span></div>
         </div>
         """)
 
+    return '<div class="direction-grid">' + "".join(cards) + "</div>"
+
+
+def render_historical_cards(data=None):
+    """Render the last successful simulation as clearly labelled history."""
+
+    if not data:
+        return (
+            '<div class="panel">'
+            '<b>LAST VALID SIMULATION DATA</b>'
+            '<div>No previous successful simulation data is available.</div>'
+            '</div>'
+        )
+
+    cards = render_cards(
+        data["vehicle_counts"],
+        data["waiting_times"],
+    )
+    timestamp = html.escape(str(data.get("label", "Previous successful simulation")))
     return (
-        '<div class="direction-grid">'
-        + "".join(cards)
-        + "</div>"
+        '<div class="panel" style="margin-bottom:10px;">'
+        '<b>LAST VALID SIMULATION DATA — HISTORICAL</b>'
+        f'<div>{timestamp}. This is not the result of the current request.</div>'
+        '</div>'
+        + cards
     )
 
 
@@ -821,7 +799,7 @@ def render_intersection(status=None):
         if cycle_status == "COMPLETED":
 
             badge_text = (
-                f"{phase} - CYCLE COMPLETED"
+                f"CYCLE COMPLETED - LAST SIGNAL: {signal}"
             )
 
         elif cycle_status == "BLOCKED":
@@ -1477,53 +1455,41 @@ def build_execution_log(
     result,
     controller=None,
 ):
-    """Build execution logs from actual backend results."""
+    """Build execution logs with distinct request and runtime statuses."""
 
     logs = {
         "AI model": result.get("model"),
-
-        "AI success": result.get("success"),
-
-        "Python function calls": (
-            result.get("tool_calls", [])
+        "Request status": result.get(
+            "request_status",
+            "REFUSED" if result.get("refused") else (
+                "SUCCESS" if result.get("success") else "INCOMPLETE"
+            ),
         ),
-
-        "Selected phase": (
-            result.get("selected_phase")
+        "AI execution": result.get(
+            "ai_execution",
+            "NOT_REQUIRED" if result.get("refused") else "COMPLETED",
         ),
-
-        "Recommended green duration": (
-            result.get("green_duration")
+        "Python calls": result.get(
+            "python_call_count", len(result.get("tool_calls", []))
+        ),
+        "Python function calls": result.get("tool_calls", []),
+        "Selected phase": result.get("selected_phase"),
+        "Recommended green duration": result.get("green_duration"),
+        "Simulation status": (
+            controller.simulator.cycle_status
+            if controller is not None and controller.simulator is not None
+            else result.get("simulation_status", "NOT_STARTED")
         ),
     }
 
     if controller is not None:
-
         data = controller.get_dashboard_data()
-
-        logs["Simulation status"] = (
-            data["cycle_status"]
-        )
-
-        logs["Simulation stage"] = (
-            data["cycle_stage"]
-        )
-
-        logs["Signal history"] = (
-            data["signal_history"]
-        )
-
-        logs["Total individual cars"] = (
-            data["total_individual_cars"]
-        )
-
-        logs["Vehicle history"] = (
-            data["vehicle_history"]
-        )
-
-        logs["Performance metrics"] = (
-            data["performance_metrics"]
-        )
+        logs["Simulation stage"] = data["cycle_stage"]
+        logs["Current signal state"] = data["traffic_status"]["current_signal_state"]
+        logs["Signal history"] = data["signal_history"]
+        logs["Total individual cars"] = data["total_individual_cars"]
+        logs["Vehicle history"] = data["vehicle_history"]
+        logs["Performance metrics"] = data["performance_metrics"]
 
     return logs
 
@@ -1533,6 +1499,8 @@ def build_execution_log(
 # =====================================================
 
 def analyse_traffic(user_request):
+    global LAST_VALID_SIMULATION_DATA
+
     """
     Main integrated workflow.
 
@@ -1562,7 +1530,7 @@ def analyse_traffic(user_request):
 
             render_intersection(),
 
-            render_cards(),
+            render_historical_cards(LAST_VALID_SIMULATION_DATA),
 
             render_metrics(),
 
@@ -1589,7 +1557,7 @@ def analyse_traffic(user_request):
 
         render_intersection(),
 
-        render_cards(),
+        render_historical_cards(LAST_VALID_SIMULATION_DATA),
 
         render_metrics(),
 
@@ -1617,7 +1585,7 @@ def analyse_traffic(user_request):
 
             render_intersection(),
 
-            render_cards(),
+            render_historical_cards(LAST_VALID_SIMULATION_DATA),
 
             render_metrics(),
 
@@ -1646,7 +1614,7 @@ def analyse_traffic(user_request):
 
             render_intersection(),
 
-            render_cards(),
+            render_historical_cards(LAST_VALID_SIMULATION_DATA),
 
             render_metrics(),
 
@@ -1679,7 +1647,7 @@ def analyse_traffic(user_request):
 
             render_intersection(),
 
-            render_cards(),
+            render_historical_cards(LAST_VALID_SIMULATION_DATA),
 
             render_metrics(),
 
@@ -1719,7 +1687,7 @@ def analyse_traffic(user_request):
 
             render_intersection(),
 
-            render_cards(),
+            render_historical_cards(LAST_VALID_SIMULATION_DATA),
 
             render_metrics(),
 
@@ -1765,7 +1733,7 @@ def analyse_traffic(user_request):
 
             render_intersection(),
 
-            render_cards(),
+            render_historical_cards(LAST_VALID_SIMULATION_DATA),
 
             render_metrics(),
 
@@ -1940,6 +1908,14 @@ def analyse_traffic(user_request):
 
     final_metrics = final_data["performance_metrics"]
 
+    # Update historical data only after a successful completed cycle.
+    if final_data["cycle_status"] == "COMPLETED":
+        LAST_VALID_SIMULATION_DATA = {
+            "vehicle_counts": final_status["vehicle_counts"].copy(),
+            "waiting_times": final_status["waiting_times"].copy(),
+            "label": f"Completed simulation at {final_status['simulation_time']} seconds",
+        }
+
     yield (
         status_html(
             "ok",
@@ -1986,7 +1962,7 @@ def reset_dashboard():
 
         render_intersection(),
 
-        render_cards(),
+        render_historical_cards(LAST_VALID_SIMULATION_DATA),
 
         render_metrics(),
 
@@ -2172,7 +2148,7 @@ with gr.Blocks(
     gr.Markdown("## 4. Live Traffic Monitoring")
 
     traffic_cards = gr.HTML(
-        render_cards()
+        render_historical_cards(LAST_VALID_SIMULATION_DATA)
     )
 
     # ---------------------------------------------

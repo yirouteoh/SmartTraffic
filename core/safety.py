@@ -30,13 +30,18 @@ VALID_SIGNAL_STATES = (
 # 2. USER REQUEST SAFETY CHECK
 # ==========================================
 
+
 def check_user_request_safety(user_input: str) -> dict:
     """
     Check whether a user request is permitted.
 
-    This is a baseline rule-based guardrail.
-    It does not replace human review or comprehensive
-    prompt-injection detection.
+    Detects:
+    1. Prompt injection attempts.
+    2. Unsupported real-world traffic-control requests.
+    3. Unsafe simultaneous traffic-phase activation.
+
+    Safety checks are enforced in Python before the LLM
+    receives the user request.
     """
 
     if not isinstance(user_input, str):
@@ -55,12 +60,27 @@ def check_user_request_safety(user_input: str) -> dict:
 
     text = user_input.lower()
 
-    # Basic prompt-injection patterns.
+    # ==========================================
+    # 1. PROMPT-INJECTION DETECTION
+    # ==========================================
+
     injection_patterns = [
-        r"\bignore\b.{0,40}\b(previous|prior|above|all)\b.{0,30}\b(instructions?|rules?|prompts?)\b",
-        r"\b(disregard|override|bypass)\b.{0,40}\b(instructions?|rules?|guardrails?)\b",
-        r"\breveal\b.{0,30}\b(system prompt|hidden instructions|api key|secret)\b",
-        r"\bact as\b.{0,30}\b(unrestricted|unfiltered|without rules)\b",
+
+        # Ignore or override existing instructions.
+        r"\b(ignore|disregard|forget|override)\b.{0,60}\b(previous|prior|above|system|developer|all)\b.{0,40}\b(instructions?|rules?|prompts?|policies?)\b",
+
+        # Bypass or disable safety mechanisms.
+        r"\b(bypass|disable|circumvent|evade|remove|turn off)\b.{0,60}\b(safety\s+(checks?|rules?|restrictions?|controls?)|guardrails?|security\s+checks?|instructions?|rules?)\b",
+
+        # Reveal hidden instructions or confidential information.
+        r"\b(reveal|show|print|display|expose|repeat|provide)\b.{0,60}\b(hidden\s+(system\s+)?instructions?|system\s+prompt|developer\s+instructions?|api\s+keys?|secrets?)\b",
+
+        # Attempt to change the agent's identity or restrictions.
+        r"\bact as\b.{0,40}\b(unrestricted|unfiltered|without rules|without restrictions)\b",
+
+        # Developer-mode and unrestricted-mode attempts.
+        r"\b(enable|activate|enter|switch to)\b.{0,40}\b(developer mode|unrestricted mode|jailbreak mode)\b",
+
     ]
 
     for pattern in injection_patterns:
@@ -71,17 +91,23 @@ def check_user_request_safety(user_input: str) -> dict:
                 "allowed": False,
                 "category": "PROMPT_INJECTION",
                 "reason": (
-                    "The request contains an attempt to "
-                    "override SmartTraffic instructions."
+                    "The request contains an attempt to bypass "
+                    "SmartTraffic instructions or safety restrictions."
                 ),
             }
 
-    # Block requests that attempt to control actual
-    # external traffic infrastructure.
+    # ==========================================
+    # 2. UNSUPPORTED REAL-WORLD CONTROL
+    # ==========================================
+
     real_world_patterns = [
+
         r"\b(real|actual|live)\b.{0,30}\b(traffic lights?|traffic signals?|intersection)\b.{0,40}\b(control|activate|change|override|operate)\b",
+
         r"\b(control|activate|override|operate)\b.{0,40}\b(real|actual|live)\b.{0,30}\b(traffic lights?|traffic signals?)\b",
+
         r"\bconnect\b.{0,30}\b(real traffic controller|traffic signal hardware)\b",
+
     ]
 
     for pattern in real_world_patterns:
@@ -97,11 +123,75 @@ def check_user_request_safety(user_input: str) -> dict:
                 ),
             }
 
-    # Block explicit unsafe simultaneous green requests.
+    # ==========================================
+    # 3. UNSAFE SIMULTANEOUS PHASE ACTIVATION
+    # ==========================================
+
+    # Recognise North-South and East-West phases.
+    ns_pattern = (
+        r"\b(ns|north[\s-]*south|north\s+(and|&)\s+south)\b"
+    )
+
+    ew_pattern = (
+        r"\b(ew|east[\s-]*west|east\s+(and|&)\s+west)\b"
+    )
+
+    # Recognise commands that attempt to activate signals.
+    activation_pattern = (
+        r"\b(activate|enable|turn\s+on|switch\s+on|set|make|"
+        r"keep|maintain|run|operate|allow|give)\b"
+    )
+
+    # Recognise simultaneous activation requests.
+    simultaneous_pattern = (
+        r"\b(simultaneously|at\s+the\s+same\s+time|together|both)\b"
+    )
+
+    has_ns = bool(re.search(ns_pattern, text))
+    has_ew = bool(re.search(ew_pattern, text))
+
+    requests_activation = bool(
+        re.search(activation_pattern, text)
+    )
+
+    requests_simultaneous = bool(
+        re.search(simultaneous_pattern, text)
+    )
+
+    requests_green = bool(
+        re.search(r"\b(green|go)\b", text)
+    )
+
+    # Both conflicting phases must not receive green together.
+    if (
+        has_ns
+        and has_ew
+        and requests_activation
+        and (requests_simultaneous or requests_green)
+    ):
+
+        return {
+            "allowed": False,
+            "category": "UNSAFE_ACTION",
+            "reason": (
+                "Simultaneously activating conflicting "
+                "North-South and East-West traffic phases "
+                "is not permitted."
+            ),
+        }
+
+    # ==========================================
+    # 4. EXISTING GENERAL UNSAFE SIGNAL REQUESTS
+    # ==========================================
+
     unsafe_patterns = [
+
         r"\b(all|every)\b.{0,20}\b(traffic lights?|signals?)\b.{0,30}\b(green|go)\b",
+
         r"\b(make|set|turn)\b.{0,30}\b(all|every)\b.{0,20}\b(traffic lights?|signals?)\b.{0,20}\bgreen\b",
+
         r"\bactivate\b.{0,30}\b(both|all)\b.{0,20}\bphases\b.{0,30}\bsimultaneously\b",
+
     ]
 
     for pattern in unsafe_patterns:
@@ -117,10 +207,14 @@ def check_user_request_safety(user_input: str) -> dict:
                 ),
             }
 
+    # ==========================================
+    # 5. REQUEST PASSED PYTHON SAFETY CHECKS
+    # ==========================================
+
     return {
         "allowed": True,
         "category": "PERMITTED",
-        "reason": "Request passed the basic safety checks.",
+        "reason": "Request passed the Python safety checks.",
     }
 
 
