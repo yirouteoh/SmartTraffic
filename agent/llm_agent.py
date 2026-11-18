@@ -30,7 +30,10 @@ from agent.tools import (
     execute_tool,
 )
 
-from core.validation import validate_user_input
+from core.validation import (
+    validate_user_input,
+    validate_traffic_request_data,
+)
 
 from core.safety import check_user_request_safety
 
@@ -315,6 +318,25 @@ class SmartTrafficAgent:
             )
 
         # ---------------------------------------------
+        # STEP 2B: CHECK REQUIRED TRAFFIC INFORMATION
+        # ---------------------------------------------
+
+        try:
+            traffic_data = validate_traffic_request_data(user_input)
+
+        except ValueError as error:
+            return build_result(
+                success=False,
+                response=str(error),
+                tool_calls=[],
+                refused=False,
+                refusal_category=None,
+                request_status="INCOMPLETE",
+                ai_execution="NOT_STARTED",
+                simulation_status="NOT_STARTED",
+            )
+
+        # ---------------------------------------------
         # STEP 3: INITIALISE CONVERSATION
         # ---------------------------------------------
 
@@ -513,6 +535,26 @@ class SmartTrafficAgent:
                     raise ValueError(
                         "Tool arguments must be a JSON object."
                     )
+
+                # -------------------------------------
+                # VERIFY FIRST-STAGE TRAFFIC ARGUMENTS
+                # -------------------------------------
+
+                if stage == "traffic_priority":
+                    expected_vehicle_counts = traffic_data["vehicle_counts"]
+                    expected_waiting_times = traffic_data["waiting_times"]
+
+                    if arguments.get("vehicle_counts") != expected_vehicle_counts:
+                        raise ValueError(
+                            "The traffic_priority vehicle counts do not "
+                            "match the values explicitly provided by the user."
+                        )
+
+                    if arguments.get("waiting_times") != expected_waiting_times:
+                        raise ValueError(
+                            "The traffic_priority waiting times do not "
+                            "match the values explicitly provided by the user."
+                        )
 
                 # -------------------------------------
                 # VERIFY GREEN-TIME ARGUMENTS
