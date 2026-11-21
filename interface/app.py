@@ -1439,7 +1439,19 @@ with gr.Blocks(
     # QUICK NAVIGATION TO LIVE DEMONSTRATION.
     gr.HTML("""
 <div class="st-quick-nav">
-    <a href="#live-intersection" class="st-demo-button">
+    <a href="#live-intersection"
+       class="st-demo-button"
+       onclick="
+           event.preventDefault();
+           const target = document.getElementById('live-intersection');
+           if (target) {
+               target.scrollIntoView({
+                   behavior: 'smooth',
+                   block: 'start'
+               });
+           }
+           return false;
+       ">
         <span>🚦</span>
         <span>Jump to Live Traffic Demonstration</span>
         <span>↓</span>
