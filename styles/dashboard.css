@@ -757,3 +757,76 @@ button.secondary:hover {
 .st-logs * {
     font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace !important;
 }
+
+
+/* =========================================
+   QUICK NAVIGATION
+========================================= */
+
+html {
+    scroll-behavior: smooth;
+    scroll-padding-top: 24px;
+}
+
+.st-quick-nav {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin: 0 0 20px;
+}
+
+.st-demo-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 15px 26px;
+    background: linear-gradient(120deg, #1d4ed8, #3b82f6);
+    color: #ffffff !important;
+    border-radius: 12px;
+    text-decoration: none !important;
+    font-size: 16px;
+    font-weight: 700;
+    box-shadow: 0 5px 14px rgba(37, 99, 235, .22);
+    transition: transform .2s, box-shadow .2s;
+}
+
+.st-demo-button:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 18px rgba(37, 99, 235, .3);
+}
+
+
+.st-demo-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 15px 26px;
+    background: linear-gradient(120deg, #1d4ed8, #3b82f6);
+    color: #ffffff !important;
+    border-radius: 12px;
+    text-decoration: none !important;
+    font-size: 16px;
+    font-weight: 700;
+    box-shadow: 0 5px 14px rgba(37, 99, 235, .22);
+    transition: transform .2s, box-shadow .2s;
+}
+
+.st-demo-button span {
+    color: #ffffff !important;
+}
+
+.st-demo-button:hover {
+    color: #ffffff !important;
+    transform: translateY(-2px);
+    box-shadow: 0 8px 18px rgba(37, 99, 235, .3);
+}
+
+.st-demo-button:hover span {
+    color: #ffffff !important;
+}
+
+

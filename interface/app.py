@@ -1420,7 +1420,7 @@ with gr.Blocks(
 
     # HEADER.
     gr.HTML("""
-    <div class="st-header">
+    <div class="st-header" id="smarttraffic-top">
         <div class="st-header-left">
             <div class="st-header-icon">🚦</div>
             <div>
@@ -1435,6 +1435,18 @@ with gr.Blocks(
         </div>
     </div>
     """)
+    
+    # QUICK NAVIGATION TO LIVE DEMONSTRATION.
+    gr.HTML("""
+<div class="st-quick-nav">
+    <a href="#live-intersection" class="st-demo-button">
+        <span>🚦</span>
+        <span>Jump to Live Traffic Demonstration</span>
+        <span>↓</span>
+    </a>
+</div>
+""")
+
 
     # ROW 1
     with gr.Row(equal_height=False, elem_classes=["st-row"]):
@@ -1523,7 +1535,10 @@ with gr.Blocks(
 
             gr.HTML(section_title(4, "Live Traffic Intersection"))
 
-            intersection_view = gr.HTML(render_intersection())
+            intersection_view = gr.HTML(
+    render_intersection(),
+    elem_id="live-intersection"
+)
 
         # ---- RIGHT: performance + logs ----
         with gr.Column(scale=1, min_width=420, elem_classes=["st-card"]):
