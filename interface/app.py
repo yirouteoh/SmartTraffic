@@ -1,4 +1,3 @@
-
 """
 SmartTraffic - Intelligent Traffic Decision Assistant
 
@@ -11,23 +10,8 @@ User Request
     -> Individual Vehicle Traffic Simulator
     -> Directional SVG Traffic Visualisation
 
-Features:
-- One traffic request input
-- One Analyse Traffic button
-- Actual Qwen tool calling
-- Actual Python calculation results
-- Individual car visualisation
-- Four-way traffic intersection
-- Four clearly identified traffic lights
-- Automatic signal transitions
-- Live backend vehicle positions
-- Vehicle queue updates
-- AI explanation
-- Python execution logs
-- Safety refusal handling
-
-All displayed car positions and signal states
-come from the actual TrafficSimulator backend.
+All displayed car positions and signal states come from the
+actual TrafficSimulator backend.
 
 CSS is loaded from styles/dashboard.css.
 """
@@ -57,14 +41,11 @@ CSS_PATH = PROJECT_ROOT / "styles" / "dashboard.css"
 # =====================================================
 
 if not CSS_PATH.is_file():
-
     raise FileNotFoundError(
         f"Dashboard CSS file not found: {CSS_PATH}"
     )
 
-CUSTOM_CSS = CSS_PATH.read_text(
-    encoding="utf-8"
-)
+CUSTOM_CSS = CSS_PATH.read_text(encoding="utf-8")
 
 
 # =====================================================
@@ -80,28 +61,14 @@ LAST_VALID_SIMULATION_DATA = None
 # None means that no previous phase is available yet.
 LAST_SERVED_PHASE = None
 
-DEFAULT_SCENARIO = (
-    25, 90, 18, 65, 8, 25, 5, 15
-)
+DEFAULT_SCENARIO = (25, 90, 18, 65, 8, 25, 5, 15)
 
 PRESETS = {
-    "Rush hour (NS heavy)": (
-        25, 90, 18, 65, 8, 25, 5, 15
-    ),
-
-    "Balanced": (
-        12, 40, 11, 38, 12, 42, 10, 35
-    ),
-
-    "Event exit (EW heavy)": (
-        6, 20, 8, 25, 28, 110, 22, 95
-    ),
-
-    "Quiet night": (
-        2, 10, 1, 8, 2, 12, 1, 6
-    ),
+    "Rush hour (NS heavy)": (25, 90, 18, 65, 8, 25, 5, 15),
+    "Balanced": (12, 40, 11, 38, 12, 42, 10, 35),
+    "Event exit (EW heavy)": (6, 20, 8, 25, 28, 110, 22, 95),
+    "Quiet night": (2, 10, 1, 8, 2, 12, 1, 6),
 }
-
 
 # Animation speed.
 ANIMATION_DELAY = 0.12
@@ -112,16 +79,15 @@ ANIMATION_DELAY = 0.12
 # =====================================================
 
 CANVAS_SIZE = 1500
-
 CENTER = 750
-
 ROAD_WIDTH = 200
-
 ROAD_START = 650
-
 ROAD_END = 850
-
 POSITION_SCALE = 2.8
+
+# The simulation is drawn on a 1500 x 1500 canvas, but only the
+# central part is shown so the roads, cars and lights appear larger.
+VIEW_BOX = "150 150 1200 1200"
 
 # Car body dimensions.
 CAR_LENGTH = 38
@@ -135,56 +101,26 @@ CAR_WIDTH = 20
 # West: moves right.
 
 LANE_COORDINATES = {
-    "north": {
-        "x": 790,
-        "rotation": 90,
-    },
-
-    "south": {
-        "x": 710,
-        "rotation": 270,
-    },
-
-    "east": {
-        "y": 710,
-        "rotation": 180,
-    },
-
-    "west": {
-        "y": 790,
-        "rotation": 0,
-    },
+    "north": {"x": 790, "rotation": 90},
+    "south": {"x": 710, "rotation": 270},
+    "east": {"y": 710, "rotation": 180},
+    "west": {"y": 790, "rotation": 0},
 }
 
-# Traffic light locations.
-#
-# Each light is positioned beside its incoming road.
-# Each light has its own directional label.
+# Traffic light locations. Each light sits beside the road it controls
+# (on the driver's right side), and the four lights do not overlap.
 
 TRAFFIC_LIGHT_POSITIONS = {
-    "north": {
-        "x": 950,
-        "y": 500,
-        "label": "NORTH",
-    },
+    "north": {"x": 915, "y": 430, "label": "NORTH"},
+    "south": {"x": 585, "y": 1070, "label": "SOUTH"},
+    "east": {"x": 1010, "y": 520, "label": "EAST"},
+    "west": {"x": 490, "y": 980, "label": "WEST"},
+}
 
-    "south": {
-        "x": 550,
-        "y": 1000,
-        "label": "SOUTH",
-    },
-
-    "east": {
-        "x": 1000,
-        "y": 550,
-        "label": "EAST",
-    },
-
-    "west": {
-        "x": 500,
-        "y": 950,
-        "label": "WEST",
-    },
+SIGNAL_COLOURS = {
+    "RED": "#ef4444",
+    "YELLOW": "#eab308",
+    "GREEN": "#22c55e",
 }
 
 CAR_COLOURS = [
@@ -203,28 +139,23 @@ CAR_COLOURS = [
 # 5. STATUS DISPLAY
 # =====================================================
 
-def status_html(kind, title, lines):
-    """Create a dashboard status message safely."""
+def status_html(kind, title, lines, loading=False):
+    """Create a dashboard status message safely.
 
-    allowed_kinds = {
-        "ok",
-        "warn",
-        "bad",
-    }
+    loading=True shows a spinner beside the title so the user can see
+    that the app is working and not frozen.
+    """
 
-    if kind not in allowed_kinds:
+    if kind not in {"ok", "warn", "bad"}:
         kind = "warn"
 
-    body = "<br>".join(
-        html.escape(str(line))
-        for line in lines
-    )
+    body = "<br>".join(html.escape(str(line)) for line in lines)
+
+    spinner = '<span class="st-spinner"></span>' if loading else ""
 
     return (
-        f'<div class="status-box {kind}">'
-        f'<div class="status-title">'
-        f'{html.escape(str(title))}'
-        f'</div>'
+        f'<div class="st-status st-{kind}">'
+        f'<div class="st-status-title">{spinner}{html.escape(str(title))}</div>'
         f'{body}'
         f'</div>'
     )
@@ -237,46 +168,37 @@ IDLE_STATUS = status_html(
 )
 
 
+def section_title(number, text):
+    """Numbered section heading."""
+
+    return (
+        f'<div class="st-section">'
+        f'<span class="st-num">{number}</span>'
+        f'{html.escape(text)}'
+        f'</div>'
+    )
+
+
 # =====================================================
 # 6. TRAFFIC DATA VALIDATION
 # =====================================================
 
-def validate_traffic_data(
-    vehicle_counts,
-    waiting_times,
-):
+def validate_traffic_data(vehicle_counts, waiting_times):
     """Validate traffic information from Python tool logs."""
 
     if not isinstance(vehicle_counts, dict):
-
-        raise ValueError(
-            "Invalid vehicle count data."
-        )
+        raise ValueError("Invalid vehicle count data.")
 
     if not isinstance(waiting_times, dict):
+        raise ValueError("Invalid waiting time data.")
 
-        raise ValueError(
-            "Invalid waiting time data."
-        )
-
-    required = {
-        "north",
-        "south",
-        "east",
-        "west",
-    }
+    required = {"north", "south", "east", "west"}
 
     if set(vehicle_counts) != required:
-
-        raise ValueError(
-            "All four vehicle directions are required."
-        )
+        raise ValueError("All four vehicle directions are required.")
 
     if set(waiting_times) != required:
-
-        raise ValueError(
-            "All four waiting-time directions are required."
-        )
+        raise ValueError("All four waiting-time directions are required.")
 
     for direction in required:
 
@@ -288,20 +210,14 @@ def validate_traffic_data(
             or not isinstance(count, int)
             or not 0 <= count <= 10000
         ):
-
-            raise ValueError(
-                f"Invalid vehicle count for {direction}."
-            )
+            raise ValueError(f"Invalid vehicle count for {direction}.")
 
         if (
             isinstance(waiting, bool)
             or not isinstance(waiting, (int, float))
             or not 0 <= waiting <= 86400
         ):
-
-            raise ValueError(
-                f"Invalid waiting time for {direction}."
-            )
+            raise ValueError(f"Invalid waiting time for {direction}.")
 
 
 # =====================================================
@@ -313,7 +229,7 @@ def render_cards(vehicle_counts=None, waiting_times=None):
 
     if vehicle_counts is None or waiting_times is None:
         return (
-            '<div class="panel">'
+            '<div class="st-panel">'
             '<b>NO CURRENT TRAFFIC DATA</b>'
             '<div>Submit a valid traffic request to display current conditions.</div>'
             '</div>'
@@ -335,15 +251,15 @@ def render_cards(vehicle_counts=None, waiting_times=None):
 
         percentage = min(count / 30 * 100, 100)
         cards.append(f"""
-        <div class="direction-card lvl-{level}">
-            <div class="direction-name">{direction.upper()} - {tag}</div>
-            <div class="direction-info">{count} <small>cars</small></div>
-            <div class="direction-wait">Waiting {waiting:.1f} seconds</div>
-            <div class="bar"><span style="width:{percentage:.0f}%"></span></div>
+        <div class="st-dir lvl-{level}">
+            <div class="st-dir-name">{direction.upper()} - {tag}</div>
+            <div class="st-dir-count">{count} <small>cars</small></div>
+            <div class="st-dir-wait">Waiting {waiting:.1f} seconds</div>
+            <div class="st-bar"><span style="width:{percentage:.0f}%"></span></div>
         </div>
         """)
 
-    return '<div class="direction-grid">' + "".join(cards) + "</div>"
+    return '<div class="st-grid">' + "".join(cards) + "</div>"
 
 
 def render_historical_cards(data=None):
@@ -351,7 +267,7 @@ def render_historical_cards(data=None):
 
     if not data:
         return (
-            '<div class="panel">'
+            '<div class="st-panel">'
             '<b>LAST VALID SIMULATION DATA</b>'
             '<div>No previous successful simulation data is available.</div>'
             '</div>'
@@ -363,7 +279,7 @@ def render_historical_cards(data=None):
     )
     timestamp = html.escape(str(data.get("label", "Previous successful simulation")))
     return (
-        '<div class="panel" style="margin-bottom:10px;">'
+        '<div class="st-panel st-history">'
         '<b>LAST VALID SIMULATION DATA — HISTORICAL</b>'
         f'<div>{timestamp}. This is not the result of the current request.</div>'
         '</div>'
@@ -375,50 +291,34 @@ def render_historical_cards(data=None):
 # 8. DRAW TRAFFIC SIGNAL
 # =====================================================
 
-def draw_signal(
-    x,
-    y,
-    state,
-    label,
-):
+def draw_signal(x, y, state, label):
     """
     Draw one individual traffic signal.
 
-    state:
-        RED
-        YELLOW
-        GREEN
-
-    label:
-        NORTH
-        SOUTH
-        EAST
-        WEST
+    state: RED | YELLOW | GREEN
+    label: NORTH | SOUTH | EAST | WEST
     """
 
     lamps = [
-        ("RED", "#ef4444", 0),
-        ("YELLOW", "#eab308", 1),
-        ("GREEN", "#22c55e", 2),
+        ("RED", SIGNAL_COLOURS["RED"], 0),
+        ("YELLOW", SIGNAL_COLOURS["YELLOW"], 1),
+        ("GREEN", SIGNAL_COLOURS["GREEN"], 2),
     ]
 
     safe_label = html.escape(str(label))
 
     parts = [
-        f'<g transform="translate({x},{y})">',
+        f'<g transform="translate({x},{y}) scale(1.5)">',
 
         # Signal housing.
         '<rect x="-17" y="-40" width="34" height="94" '
-        'rx="9" fill="#101820" '
-        'stroke="#94a3b8" stroke-width="2"/>'
+        'rx="9" fill="#0b121b" '
+        'stroke="#cbd5e1" stroke-width="2.5"/>'
     ]
 
     for name, colour, index in lamps:
 
-        opacity = (
-            1.0 if state == name else 0.18
-        )
-
+        opacity = 1.0 if state == name else 0.18
         cy = -25 + index * 28
 
         parts.append(
@@ -428,11 +328,9 @@ def draw_signal(
 
     # Directional label.
     parts.append(
-        f'<text x="0" y="77" '
-        f'fill="#ffffff" '
-        f'font-size="15" '
-        f'font-weight="bold" '
-        f'text-anchor="middle">'
+        f'<text x="0" y="75" fill="#ffffff" font-size="15" '
+        f'font-weight="bold" text-anchor="middle" '
+        f'style="paint-order:stroke;stroke:#0b1220;stroke-width:3px;">'
         f'{safe_label}</text>'
     )
 
@@ -450,37 +348,27 @@ def get_directional_signal_states(status=None):
     Translate the backend phase and signal state
     into four individual directional signal states.
 
-    NS:
-        North and South operate together.
-
-    EW:
-        East and West operate together.
+    NS: North and South operate together.
+    EW: East and West operate together.
     """
 
-    if status is None:
+    all_red = {
+        "north": "RED",
+        "south": "RED",
+        "east": "RED",
+        "west": "RED",
+    }
 
-        return {
-            "north": "RED",
-            "south": "RED",
-            "east": "RED",
-            "west": "RED",
-        }
+    if status is None:
+        return all_red
 
     phase = status["current_phase"]
-
     signal = status["current_signal_state"]
 
     if signal == "ALL_RED":
-
-        return {
-            "north": "RED",
-            "south": "RED",
-            "east": "RED",
-            "west": "RED",
-        }
+        return all_red
 
     if phase == "NS":
-
         return {
             "north": signal,
             "south": signal,
@@ -489,7 +377,6 @@ def get_directional_signal_states(status=None):
         }
 
     if phase == "EW":
-
         return {
             "north": "RED",
             "south": "RED",
@@ -497,207 +384,77 @@ def get_directional_signal_states(status=None):
             "west": signal,
         }
 
-    raise ValueError(
-        "Invalid traffic phase returned by simulator."
-    )
+    raise ValueError("Invalid traffic phase returned by simulator.")
 
 
 # =====================================================
 # 10. DRAW INDIVIDUAL CAR
 # =====================================================
 
-def draw_car(
-    vehicle,
-    index,
-):
+def draw_car(vehicle, index):
     """
     Draw one individual car using its actual
     TrafficSimulator backend record.
 
     Backend fields:
-        vehicle_id
-        direction
-        position
-        status
-        speed
+        vehicle_id, direction, position, status, speed
 
     Position represents distance from the stop line.
     """
 
     direction = vehicle["direction"]
-
     position = float(vehicle["position"])
-
     vehicle_id = str(vehicle["vehicle_id"])
-
     status = vehicle["status"]
 
     if direction not in LANE_COORDINATES:
-
         return ""
 
     # Convert backend distance into SVG coordinates.
     distance = position * POSITION_SCALE
 
     lane = LANE_COORDINATES[direction]
-
     rotation = lane["rotation"]
 
-    # Account for the half-length of the car body.
-    # This keeps the car's front aligned with the stop line
-    # when the backend position reaches zero.
+    # Account for the half-length of the car body so the car's front
+    # is aligned with the stop line when the backend position is zero.
 
     if direction == "north":
-
         x = lane["x"]
-
-        y = (
-            635
-            - distance
-            - CAR_LENGTH / 2
-        )
+        y = 635 - distance - CAR_LENGTH / 2
 
     elif direction == "south":
-
         x = lane["x"]
-
-        y = (
-            865
-            + distance
-            + CAR_LENGTH / 2
-        )
+        y = 865 + distance + CAR_LENGTH / 2
 
     elif direction == "west":
-
-        x = (
-            635
-            - distance
-            - CAR_LENGTH / 2
-        )
-
+        x = 635 - distance - CAR_LENGTH / 2
         y = lane["y"]
 
     else:
-
-        x = (
-            865
-            + distance
-            + CAR_LENGTH / 2
-        )
-
+        x = 865 + distance + CAR_LENGTH / 2
         y = lane["y"]
 
-    colour = CAR_COLOURS[
-        index % len(CAR_COLOURS)
-    ]
+    colour = CAR_COLOURS[index % len(CAR_COLOURS)]
 
-    outline = (
-        "#86efac"
-        if status == "MOVING"
-        else "#e2e8f0"
-    )
+    outline = "#86efac" if status == "MOVING" else "#e2e8f0"
 
-    safe_title = html.escape(
-        f"{vehicle_id} | {direction} | {status}"
-    )
+    safe_title = html.escape(f"{vehicle_id} | {direction} | {status}")
 
     return f"""
-    <g transform="
-        translate({x:.2f},{y:.2f})
-        rotate({rotation})
-    ">
-
+    <g transform="translate({x:.2f},{y:.2f}) rotate({rotation})">
         <title>{safe_title}</title>
-
-        <!-- Car body -->
-        <rect
-            x="-19"
-            y="-10"
-            width="38"
-            height="20"
-            rx="6"
-            fill="{colour}"
-            stroke="{outline}"
-            stroke-width="1.5"
-        />
-
-        <!-- Front windscreen -->
-        <rect
-            x="6"
-            y="-7"
-            width="8"
-            height="14"
-            rx="2"
-            fill="#bae6fd"
-            opacity="0.9"
-        />
-
-        <!-- Rear windscreen -->
-        <rect
-            x="-13"
-            y="-7"
-            width="7"
-            height="14"
-            rx="2"
-            fill="#bae6fd"
-            opacity="0.7"
-        />
-
-        <!-- Side detail -->
-        <rect
-            x="-2"
-            y="-8"
-            width="5"
-            height="16"
-            rx="1"
-            fill="#172033"
-            opacity="0.55"
-        />
-
-        <!-- Headlights -->
-        <rect
-            x="17"
-            y="-7"
-            width="3"
-            height="4"
-            rx="1"
-            fill="#fef3c7"
-        />
-
-        <rect
-            x="17"
-            y="3"
-            width="3"
-            height="4"
-            rx="1"
-            fill="#fef3c7"
-        />
-
-        <!-- Tyres -->
-        <rect
-            x="-12" y="-12"
-            width="9" height="3"
-            rx="1" fill="#111827"
-        />
-
-        <rect
-            x="8" y="-12"
-            width="9" height="3"
-            rx="1" fill="#111827"
-        />
-
-        <rect
-            x="-12" y="9"
-            width="9" height="3"
-            rx="1" fill="#111827"
-        />
-
-        <rect
-            x="8" y="9"
-            width="9" height="3"
-            rx="1" fill="#111827"
-        />
-
+        <rect x="-19" y="-10" width="38" height="20" rx="6"
+              fill="{colour}" stroke="{outline}" stroke-width="2"/>
+        <rect x="6" y="-7" width="8" height="14" rx="2" fill="#bae6fd" opacity="0.9"/>
+        <rect x="-13" y="-7" width="7" height="14" rx="2" fill="#bae6fd" opacity="0.7"/>
+        <rect x="-2" y="-8" width="5" height="16" rx="1" fill="#172033" opacity="0.55"/>
+        <rect x="17" y="-7" width="3" height="4" rx="1" fill="#fef3c7"/>
+        <rect x="17" y="3" width="3" height="4" rx="1" fill="#fef3c7"/>
+        <rect x="-12" y="-12" width="9" height="3" rx="1" fill="#111827"/>
+        <rect x="8" y="-12" width="9" height="3" rx="1" fill="#111827"/>
+        <rect x="-12" y="9" width="9" height="3" rx="1" fill="#111827"/>
+        <rect x="8" y="9" width="9" height="3" rx="1" fill="#111827"/>
     </g>
     """
 
@@ -710,21 +467,12 @@ def render_cars(vehicles):
     """Render every individual car returned by the simulator."""
 
     if not vehicles:
-
         return ""
 
-    output = []
-
-    for index, vehicle in enumerate(vehicles):
-
-        output.append(
-            draw_car(
-                vehicle,
-                index,
-            )
-        )
-
-    return "".join(output)
+    return "".join(
+        draw_car(vehicle, index)
+        for index, vehicle in enumerate(vehicles)
+    )
 
 
 # =====================================================
@@ -735,512 +483,203 @@ def render_intersection(status=None):
     """
     Render the complete four-way intersection.
 
-    Four traffic lights:
-        NORTH
-        SOUTH
-        EAST
-        WEST
-
-    Traffic lights are controlled by the actual
-    Python simulator state.
-
-    Individual car positions are obtained from
-    TrafficSimulator vehicle records.
+    Traffic lights are controlled by the actual Python simulator state.
+    Individual car positions come from TrafficSimulator vehicle records.
     """
 
     if status is None:
-
         phase = "NONE"
-
         signal = "RED"
-
         vehicles = []
-
         simulation_time = 0
-
         remaining = 0
-
         cycle_status = "IDLE"
-
-        badge_class = "badge-idle"
-
+        badge_class = "st-badge-idle"
         badge_text = "WAITING"
 
     else:
-
         phase = status["current_phase"]
-
         signal = status["current_signal_state"]
-
-        vehicles = status.get(
-            "vehicles",
-            [],
-        )
-
+        vehicles = status.get("vehicles", [])
         simulation_time = status["simulation_time"]
-
         remaining = status["remaining_time"]
-
         cycle_status = status["cycle_status"]
 
         badge_class = {
             "GREEN": (
-                "badge-ns" if phase == "NS"
-                else "badge-ew"
+                "st-badge-ns" if phase == "NS"
+                else "st-badge-ew"
             ),
-
-            "YELLOW": "badge-yellow",
-
-            "ALL_RED": "badge-red",
-
-        }.get(
-            signal,
-            "badge-idle",
-        )
+            "YELLOW": "st-badge-yellow",
+            "ALL_RED": "st-badge-red",
+        }.get(signal, "st-badge-idle")
 
         if cycle_status == "COMPLETED":
-
-            badge_text = (
-                f"CYCLE COMPLETED - LAST SIGNAL: {signal}"
-            )
-
+            badge_text = f"CYCLE COMPLETED - LAST SIGNAL: {signal}"
         elif cycle_status == "BLOCKED":
-
             badge_text = "SAFETY BLOCKED"
-
         else:
-
             badge_text = f"{phase} - {signal}"
 
-    # Obtain four actual signal states.
-    signal_states = get_directional_signal_states(
-        status
-    )
-
-    # Obtain individual cars.
+    # Four actual signal states and individual cars.
+    signal_states = get_directional_signal_states(status)
     car_svg = render_cars(vehicles)
-
     car_count = len(vehicles)
 
-    # Draw four separate traffic lights.
-    north_signal = draw_signal(
-        TRAFFIC_LIGHT_POSITIONS["north"]["x"],
-        TRAFFIC_LIGHT_POSITIONS["north"]["y"],
-        signal_states["north"],
-        "NORTH",
+    lights_svg = "".join(
+        draw_signal(
+            position["x"],
+            position["y"],
+            signal_states[direction],
+            position["label"],
+        )
+        for direction, position in TRAFFIC_LIGHT_POSITIONS.items()
     )
 
-    south_signal = draw_signal(
-        TRAFFIC_LIGHT_POSITIONS["south"]["x"],
-        TRAFFIC_LIGHT_POSITIONS["south"]["y"],
-        signal_states["south"],
-        "SOUTH",
+    # Legend: direction, its phase and its current light colour.
+    legend_html = "".join(
+        f'<div class="st-legend-item">'
+        f'<b><span class="st-dot" style="background:'
+        f'{SIGNAL_COLOURS.get(signal_states[direction], "#ef4444")};">'
+        f'</span>{direction.upper()}</b>'
+        f'<span>{"NS" if direction in ("north", "south") else "EW"} phase</span>'
+        f'</div>'
+        for direction in ("north", "south", "east", "west")
     )
 
-    east_signal = draw_signal(
-        TRAFFIC_LIGHT_POSITIONS["east"]["x"],
-        TRAFFIC_LIGHT_POSITIONS["east"]["y"],
-        signal_states["east"],
-        "EAST",
+    crossings = "".join(
+        [
+            "".join(
+                f'<rect x="{660 + i * 24}" y="610" width="13" height="17" rx="2"/>'
+                for i in range(7)
+            ),
+            "".join(
+                f'<rect x="{660 + i * 24}" y="873" width="13" height="17" rx="2"/>'
+                for i in range(7)
+            ),
+            "".join(
+                f'<rect x="610" y="{660 + i * 24}" width="17" height="13" rx="2"/>'
+                for i in range(7)
+            ),
+            "".join(
+                f'<rect x="873" y="{660 + i * 24}" width="17" height="13" rx="2"/>'
+                for i in range(7)
+            ),
+        ]
     )
 
-    west_signal = draw_signal(
-        TRAFFIC_LIGHT_POSITIONS["west"]["x"],
-        TRAFFIC_LIGHT_POSITIONS["west"]["y"],
-        signal_states["west"],
-        "WEST",
+    label_style = (
+        "paint-order:stroke;stroke:#0b1220;stroke-width:7px;"
+        "stroke-linejoin:round;"
     )
 
     return f"""
-    <div id="intersection-panel">
+    <div class="st-intersection">
 
-        <!-- Intersection header -->
-        <div style="
-            display:flex;
-            justify-content:space-between;
-            align-items:center;
-            flex-wrap:wrap;
-            gap:10px;
-            margin-bottom:12px;
-        ">
-
-            <b style="
-                color:#e5eaf3;
-                font-size:17px;
-            ">
-                LIVE FOUR-WAY TRAFFIC INTERSECTION
-            </b>
-
-            <span class="badge {badge_class}">
-                {html.escape(badge_text)}
-            </span>
-
+        <div class="st-int-head">
+            <span class="st-int-title">LIVE FOUR-WAY INTERSECTION</span>
+            <span class="st-badge {badge_class}">{html.escape(badge_text)}</span>
         </div>
 
-        <!-- Direction legend -->
-        <div style="
-            display:grid;
-            grid-template-columns:repeat(4,minmax(0,1fr));
-            gap:7px;
-            margin-bottom:12px;
-            text-align:center;
-        ">
+        <div class="st-legend">{legend_html}</div>
 
-            <div style="
-                background:#142238;
-                border-radius:8px;
-                padding:8px;
-                color:#e5eaf3;
-                font-size:12px;
-            ">
-                <b>NORTH</b>
-                <div style="color:#91a7c2;">
-                    NS phase
-                </div>
-            </div>
-
-            <div style="
-                background:#142238;
-                border-radius:8px;
-                padding:8px;
-                color:#e5eaf3;
-                font-size:12px;
-            ">
-                <b>SOUTH</b>
-                <div style="color:#91a7c2;">
-                    NS phase
-                </div>
-            </div>
-
-            <div style="
-                background:#142238;
-                border-radius:8px;
-                padding:8px;
-                color:#e5eaf3;
-                font-size:12px;
-            ">
-                <b>EAST</b>
-                <div style="color:#91a7c2;">
-                    EW phase
-                </div>
-            </div>
-
-            <div style="
-                background:#142238;
-                border-radius:8px;
-                padding:8px;
-                color:#e5eaf3;
-                font-size:12px;
-            ">
-                <b>WEST</b>
-                <div style="color:#91a7c2;">
-                    EW phase
-                </div>
-            </div>
-
-        </div>
-
-        <!-- SVG intersection -->
-        <svg
-            class="intersection-svg"
-            viewBox="0 0 1500 1500"
-            width="100%"
-            role="img"
-            aria-label="Four-way intersection with North South East West traffic lights and individual cars"
-        >
+        <div class="st-svg-wrap">
+        <svg class="st-svg" viewBox="{VIEW_BOX}"
+             role="img"
+             aria-label="Four-way intersection with North South East West traffic lights and individual cars">
 
             <defs>
-
                 <clipPath id="road-clip">
-                    <rect
-                        x="0"
-                        y="0"
-                        width="1500"
-                        height="1500"
-                    />
+                    <rect x="0" y="0" width="1500" height="1500"/>
                 </clipPath>
-
             </defs>
 
             <g clip-path="url(#road-clip)">
 
-                <!-- Grass background -->
-                <rect
-                    x="0"
-                    y="0"
-                    width="1500"
-                    height="1500"
-                    fill="#173b32"
-                />
+                <!-- Grass -->
+                <rect x="0" y="0" width="1500" height="1500" fill="#1d4a3c"/>
 
-                <!-- Horizontal road -->
-                <rect
-                    x="0"
-                    y="650"
-                    width="1500"
-                    height="200"
-                    fill="#48515e"
-                />
-
-                <!-- Vertical road -->
-                <rect
-                    x="650"
-                    y="0"
-                    width="200"
-                    height="1500"
-                    fill="#48515e"
-                />
+                <!-- Roads -->
+                <rect x="0" y="650" width="1500" height="200" fill="#3a4452"/>
+                <rect x="650" y="0" width="200" height="1500" fill="#3a4452"/>
 
                 <!-- Road edges -->
-                <g
-                    stroke="#e2e8f0"
-                    stroke-width="5"
-                    fill="none"
-                >
-
+                <g stroke="#e2e8f0" stroke-width="5" fill="none">
                     <line x1="0" y1="645" x2="650" y2="645"/>
                     <line x1="850" y1="645" x2="1500" y2="645"/>
-
                     <line x1="0" y1="855" x2="650" y2="855"/>
                     <line x1="850" y1="855" x2="1500" y2="855"/>
-
                     <line x1="645" y1="0" x2="645" y2="650"/>
                     <line x1="855" y1="0" x2="855" y2="650"/>
-
                     <line x1="645" y1="850" x2="645" y2="1500"/>
                     <line x1="855" y1="850" x2="855" y2="1500"/>
-
                 </g>
 
-                <!-- Road centre markings -->
-                <g
-                    stroke="#f8fafc"
-                    stroke-width="4"
-                    stroke-dasharray="24 20"
-                    opacity="0.8"
-                >
-
+                <!-- Centre markings -->
+                <g stroke="#f8fafc" stroke-width="4" stroke-dasharray="24 20" opacity="0.8">
                     <line x1="0" y1="750" x2="645" y2="750"/>
                     <line x1="855" y1="750" x2="1500" y2="750"/>
-
                     <line x1="750" y1="0" x2="750" y2="645"/>
                     <line x1="750" y1="855" x2="750" y2="1500"/>
-
                 </g>
 
                 <!-- Stop lines -->
-                <g
-                    stroke="#ffffff"
-                    stroke-width="7"
-                >
-
+                <g stroke="#ffffff" stroke-width="7">
                     <line x1="650" y1="635" x2="850" y2="635"/>
                     <line x1="650" y1="865" x2="850" y2="865"/>
-
                     <line x1="635" y1="650" x2="635" y2="850"/>
                     <line x1="865" y1="650" x2="865" y2="850"/>
-
                 </g>
 
-                <!-- Pedestrian crossing markings -->
-                <g
-                    fill="#f8fafc"
-                    opacity="0.85"
-                >
-
-                    {''.join(
-                        f'<rect x="{660 + i * 24}" y="610" width="13" height="17" rx="2"/>'
-                        for i in range(7)
-                    )}
-
-                    {''.join(
-                        f'<rect x="{660 + i * 24}" y="873" width="13" height="17" rx="2"/>'
-                        for i in range(7)
-                    )}
-
-                    {''.join(
-                        f'<rect x="610" y="{660 + i * 24}" width="17" height="13" rx="2"/>'
-                        for i in range(7)
-                    )}
-
-                    {''.join(
-                        f'<rect x="873" y="{660 + i * 24}" width="17" height="13" rx="2"/>'
-                        for i in range(7)
-                    )}
-
-                </g>
+                <!-- Pedestrian crossings -->
+                <g fill="#f8fafc" opacity="0.85">{crossings}</g>
 
                 <!-- Intersection centre -->
-                <rect
-                    x="650"
-                    y="650"
-                    width="200"
-                    height="200"
-                    fill="#414b57"
-                    opacity="0.8"
-                />
+                <rect x="650" y="650" width="200" height="200" fill="#323b47" opacity="0.85"/>
+                <circle cx="750" cy="750" r="43" fill="#1e293b" stroke="#94a3b8" stroke-width="3"/>
+                <text x="750" y="760" fill="white" font-size="28" font-weight="bold" text-anchor="middle">ST</text>
 
-                <circle
-                    cx="750"
-                    cy="750"
-                    r="43"
-                    fill="#1e293b"
-                    stroke="#94a3b8"
-                    stroke-width="3"
-                />
-
-                <text
-                    x="750"
-                    y="759"
-                    fill="white"
-                    font-size="27"
-                    font-weight="bold"
-                    text-anchor="middle"
-                >
-                    ST
-                </text>
-
-                <!-- North arrow -->
-                <g transform="translate(750,100)">
-
-                    <path
-                        d="M 0,-25 L -16,8 L 0,0 L 16,8 Z"
-                        fill="#ffffff"
-                    />
-
-                    <text
-                        x="0"
-                        y="-38"
-                        fill="#ffffff"
-                        font-size="23"
-                        font-weight="bold"
-                        text-anchor="middle"
-                    >
-                        N
-                    </text>
-
+                <!-- Compass -->
+                <g transform="translate(250,270)">
+                    <circle r="44" fill="#0b1220" opacity="0.65" stroke="#94a3b8" stroke-width="2"/>
+                    <path d="M 0,-28 L -13,10 L 0,2 L 13,10 Z" fill="#ffffff"/>
+                    <text x="0" y="-52" fill="#ffffff" font-size="26" font-weight="bold" text-anchor="middle" style="{label_style}">N</text>
                 </g>
 
                 <!-- Direction labels -->
-                <g
-                    fill="white"
-                    font-size="30"
-                    font-weight="bold"
-                >
-
-                    <text
-                        x="750"
-                        y="48"
-                        text-anchor="middle"
-                    >
-                        NORTH
-                    </text>
-
-                    <text
-                        x="750"
-                        y="1460"
-                        text-anchor="middle"
-                    >
-                        SOUTH
-                    </text>
-
-                    <text
-                        x="35"
-                        y="745"
-                    >
-                        WEST
-                    </text>
-
-                    <text
-                        x="1465"
-                        y="745"
-                        text-anchor="end"
-                    >
-                        EAST
-                    </text>
-
+                <g fill="#ffffff" font-size="38" font-weight="bold" style="{label_style}">
+                    <text x="880" y="215">NORTH</text>
+                    <text x="620" y="1325" text-anchor="end">SOUTH</text>
+                    <text x="170" y="915">WEST</text>
+                    <text x="1330" y="605" text-anchor="end">EAST</text>
                 </g>
 
                 <!-- Four individually labelled traffic lights -->
-
-                {north_signal}
-
-                {south_signal}
-
-                {east_signal}
-
-                {west_signal}
+                {lights_svg}
 
                 <!-- Individual cars from backend -->
-
                 {car_svg}
 
             </g>
 
         </svg>
-
-        <!-- Live simulation information -->
-        <div style="
-            display:flex;
-            justify-content:space-between;
-            flex-wrap:wrap;
-            gap:8px;
-            color:#91a7c2;
-            font-size:12px;
-            padding:12px 4px 4px;
-        ">
-
-            <span>
-                Simulation time: {simulation_time} seconds
-            </span>
-
-            <span>
-                Individual cars: {car_count}
-            </span>
-
-            <span>
-                Remaining green time: {remaining} seconds
-            </span>
-
         </div>
 
-        <!-- Signal explanation -->
-        <div style="
-            display:flex;
-            justify-content:center;
-            flex-wrap:wrap;
-            gap:14px;
-            color:#cbd5e1;
-            font-size:12px;
-            padding-top:12px;
-        ">
-
-            <span>
-                <span style="color:#ef4444;">●</span>
-                RED - Stop
-            </span>
-
-            <span>
-                <span style="color:#eab308;">●</span>
-                YELLOW - Transition
-            </span>
-
-            <span>
-                <span style="color:#22c55e;">●</span>
-                GREEN - Active phase
-            </span>
-
+        <div class="st-int-info">
+            <span>Simulation time: <b>{simulation_time} s</b></span>
+            <span>Individual cars: <b>{car_count}</b></span>
+            <span>Remaining green time: <b>{remaining} s</b></span>
         </div>
 
-        <div style="
-            color:#91a7c2;
-            font-size:11px;
-            text-align:center;
-            padding-top:8px;
-        ">
-            Four directional signals display actual
-            Python simulator states.
-            Car positions are obtained from backend records.
+        <div class="st-key">
+            <span><span style="color:#ef4444;">●</span> RED - Stop</span>
+            <span><span style="color:#eab308;">●</span> YELLOW - Transition</span>
+            <span><span style="color:#22c55e;">●</span> GREEN - Active phase</span>
+        </div>
+
+        <div class="st-note">
+            Signals show the actual Python simulator state.
+            Car positions come from backend records.
         </div>
 
     </div>
@@ -1254,61 +693,42 @@ def render_intersection(status=None):
 def render_metrics(metrics=None):
 
     if metrics is None:
-
         return """
-        <div class="panel">
+        <div class="st-panel">
             No simulation data available yet.
         </div>
         """
 
     return f"""
-    <div class="direction-grid">
+    <div class="st-grid">
 
-        <div class="metric-card">
-            <div class="metric-label">SIMULATION TIME</div>
-            <div class="metric-value">
-                {metrics["simulation_time"]} s
-            </div>
+        <div class="st-metric">
+            <div class="st-metric-label">SIMULATION TIME</div>
+            <div class="st-metric-value">{metrics["simulation_time"]} s</div>
         </div>
 
-        <div class="metric-card">
-            <div class="metric-label">CARS WAITING</div>
-            <div class="metric-value">
-                {metrics["total_vehicles_waiting"]}
-            </div>
+        <div class="st-metric">
+            <div class="st-metric-label">CARS WAITING</div>
+            <div class="st-metric-value">{metrics["total_vehicles_waiting"]}</div>
         </div>
 
-        <div class="metric-card">
-            <div class="metric-label">TOTAL ARRIVALS</div>
-            <div class="metric-value">
-                {metrics["total_arrivals"]}
-            </div>
+        <div class="st-metric">
+            <div class="st-metric-label">TOTAL ARRIVALS</div>
+            <div class="st-metric-value">{metrics["total_arrivals"]}</div>
         </div>
 
-        <div class="metric-card">
-            <div class="metric-label">TOTAL DEPARTURES</div>
-            <div class="metric-value">
-                {metrics["total_departures"]}
-            </div>
+        <div class="st-metric">
+            <div class="st-metric-label">TOTAL DEPARTURES</div>
+            <div class="st-metric-value">{metrics["total_departures"]}</div>
         </div>
 
     </div>
 
-    <div style="
-        color:#91a7c2;
-        font-size:12px;
-        margin-top:12px;
-    ">
-
-        Average waiting time:
-        {metrics["average_waiting_time"]} seconds
-
-        | Individual cars:
-        {metrics.get("total_individual_cars", 0)}
-
-        | Stage:
-        {metrics["cycle_stage"]}
-
+    <div class="st-metric-foot">
+        Average waiting time: <b>{metrics["average_waiting_time"]} s</b><br>
+        Individual cars: <b>{metrics.get("total_individual_cars", 0)}</b>
+        &nbsp;|&nbsp;
+        Stage: <b>{metrics["cycle_stage"]}</b>
     </div>
     """
 
@@ -1324,120 +744,68 @@ def extract_traffic_results(result):
     """
 
     if not result.get("success"):
-
-        raise ValueError(
-            "AI analysis was not completed successfully."
-        )
+        raise ValueError("AI analysis was not completed successfully.")
 
     decision = result.get("decision")
-
     timing = result.get("timing")
-
     logs = result.get("tool_calls", [])
 
     if not isinstance(decision, dict):
-
-        raise ValueError(
-            "Traffic priority result is missing."
-        )
+        raise ValueError("Traffic priority result is missing.")
 
     if not isinstance(timing, dict):
-
-        raise ValueError(
-            "Green-time result is missing."
-        )
+        raise ValueError("Green-time result is missing.")
 
     if not isinstance(logs, list) or len(logs) != 2:
+        raise ValueError("Both Python functions must execute successfully.")
 
-        raise ValueError(
-            "Both Python functions must execute successfully."
-        )
-
-    if any(
-        log.get("status") != "SUCCESS"
-        for log in logs
-    ):
-
-        raise ValueError(
-            "One or more Python functions failed."
-        )
+    if any(log.get("status") != "SUCCESS" for log in logs):
+        raise ValueError("One or more Python functions failed.")
 
     priority_log = next(
-        (
-            log for log in logs
-            if log["function_name"] == "traffic_priority"
-        ),
+        (log for log in logs if log["function_name"] == "traffic_priority"),
         None,
     )
 
     green_log = next(
-        (
-            log for log in logs
-            if log["function_name"] == "green_time"
-        ),
+        (log for log in logs if log["function_name"] == "green_time"),
         None,
     )
 
     if priority_log is None or green_log is None:
-
-        raise ValueError(
-            "Required Python function execution logs are missing."
-        )
+        raise ValueError("Required Python function execution logs are missing.")
 
     arguments = priority_log["arguments"]
 
     if not isinstance(arguments, dict):
-
-        raise ValueError(
-            "Invalid traffic function arguments."
-        )
+        raise ValueError("Invalid traffic function arguments.")
 
     vehicles = arguments.get("vehicle_counts")
-
     waiting = arguments.get("waiting_times")
 
-    validate_traffic_data(
-        vehicles,
-        waiting,
-    )
+    validate_traffic_data(vehicles, waiting)
 
     selected_phase = result.get("selected_phase")
-
     green_duration = result.get("green_duration")
 
     if selected_phase not in ("NS", "EW"):
-
-        raise ValueError(
-            "Invalid selected traffic phase."
-        )
+        raise ValueError("Invalid selected traffic phase.")
 
     if (
         isinstance(green_duration, bool)
         or not isinstance(green_duration, int)
         or not 15 <= green_duration <= 60
     ):
-
-        raise ValueError(
-            "Invalid recommended green duration."
-        )
+        raise ValueError("Invalid recommended green duration.")
 
     if decision.get("selected_phase") != selected_phase:
-
-        raise ValueError(
-            "Python priority result does not match."
-        )
+        raise ValueError("Python priority result does not match.")
 
     if timing.get("selected_phase") != selected_phase:
-
-        raise ValueError(
-            "Green-time phase does not match priority result."
-        )
+        raise ValueError("Green-time phase does not match priority result.")
 
     if timing.get("green_time_seconds") != green_duration:
-
-        raise ValueError(
-            "Green-time calculation does not match."
-        )
+        raise ValueError("Green-time calculation does not match.")
 
     return (
         vehicles,
@@ -1453,10 +821,7 @@ def extract_traffic_results(result):
 # 15. EXECUTION LOGS
 # =====================================================
 
-def build_execution_log(
-    result,
-    controller=None,
-):
+def build_execution_log(result, controller=None):
     """Build execution logs with distinct request and runtime statuses."""
 
     logs = {
@@ -1507,12 +872,8 @@ def analyse_traffic(user_request):
     """
     Main integrated workflow.
 
-    User
-        -> AI
-        -> Python tools
-        -> Dashboard controller
-        -> Traffic simulator
-        -> Live directional intersection
+    User -> AI -> Python tools -> Dashboard controller
+         -> Traffic simulator -> Live directional intersection
     """
 
     # STEP 1: VALIDATE USER REQUEST.
@@ -1553,7 +914,8 @@ def analyse_traffic(user_request):
             [
                 "Qwen is processing your traffic request.",
                 "Python tool execution is in progress."
-            ]
+            ],
+            loading=True,
         ),
 
         "SmartTraffic is analysing your traffic conditions...",
@@ -1574,9 +936,9 @@ def analyse_traffic(user_request):
     try:
 
         result = agent.process_request(
-        user_input=user_request,
-        previous_phase=LAST_SERVED_PHASE,
-    )
+            user_input=user_request,
+            previous_phase=LAST_SERVED_PHASE,
+        )
 
     except Exception as error:
 
@@ -1914,7 +1276,6 @@ def analyse_traffic(user_request):
 
     final_metrics = final_data["performance_metrics"]
 
-    
     # Update historical data and previous phase
     # only after a successful completed cycle.
     if final_data["cycle_status"] == "COMPLETED":
@@ -1930,7 +1291,6 @@ def analyse_traffic(user_request):
 
         # Save the phase successfully served.
         LAST_SERVED_PHASE = selected_phase
-
 
     yield (
         status_html(
@@ -1999,12 +1359,7 @@ def reset_dashboard():
 def create_preset_request(name):
 
     if name not in PRESETS:
-
-        raise ValueError(
-            "Unknown traffic preset."
-        )
-
-    values = PRESETS[name]
+        raise ValueError("Unknown traffic preset.")
 
     (
         north_v,
@@ -2015,7 +1370,7 @@ def create_preset_request(name):
         east_w,
         west_v,
         west_w,
-    ) = values
+    ) = PRESETS[name]
 
     return f"""
 Analyse this four-way traffic intersection.
@@ -2033,6 +1388,11 @@ and calculate its recommended green-light duration.
 # =====================================================
 # 19. BUILD GRADIO INTERFACE
 # =====================================================
+#
+# Page layout (two balanced columns):
+#
+#   Row 1:  [1 Traffic Request + 2 Traffic Monitoring] | [3 AI Decision]
+#   Row 2:  [4 Live Intersection]  | [5 Performance + 6 Execution Logs]
 
 with gr.Blocks(
     title="SmartTraffic - AI Traffic Assistant"
@@ -2042,165 +1402,120 @@ with gr.Blocks(
     controller_state = gr.State(value=None)
 
     # HEADER.
-
     gr.HTML("""
-    <div id="main-header">
-
-        <div style="
-            display:flex;
-            align-items:center;
-            gap:15px;
-        ">
-
-            <div style="font-size:42px;">
-                🚦
-            </div>
-
+    <div class="st-header">
+        <div class="st-header-left">
+            <div class="st-header-icon">🚦</div>
             <div>
-
                 <h1>SmartTraffic AI Assistant</h1>
-
-                <p>
-                    Intelligent Traffic Light Decision Agent
-                </p>
-
+                <p>Intelligent Traffic Light Decision Agent</p>
             </div>
-
         </div>
-
-        <div style="margin-top:15px;">
-
-            <span class="chip">QWEN AI</span>
-
-            <span class="chip">GROQ INFERENCE</span>
-
-            <span class="chip">PYTHON FUNCTION CALLING</span>
-
-            <span class="chip">INDIVIDUAL CAR SIMULATION</span>
-
+        <div class="st-chips">
+            <span class="st-chip">QWEN AI</span>
+            <span class="st-chip">GROQ INFERENCE</span>
+            <span class="st-chip">PYTHON FUNCTION CALLING</span>
         </div>
-
     </div>
     """)
 
-    # ---------------------------------------------
-    # SECTION 1: TRAFFIC REQUEST
-    # ---------------------------------------------
+    # ROW 1
+    with gr.Row(equal_height=False, elem_classes=["st-row"]):
 
-    gr.Markdown("## 1. Traffic Request")
+        # ---- LEFT: request + monitoring ----
+        with gr.Column(scale=1, min_width=420, elem_classes=["st-card"]):
 
-    user_input = gr.Textbox(
-        label="Enter traffic conditions",
+            gr.HTML(section_title(1, "Traffic Request"))
 
-        placeholder=(
-            "Example:\n"
-            "North has 25 vehicles waiting 90 seconds.\n"
-            "South has 18 vehicles waiting 65 seconds.\n"
-            "East has 8 vehicles waiting 25 seconds.\n"
-            "West has 5 vehicles waiting 15 seconds.\n\n"
-            "Ask SmartTraffic to analyse the intersection."
-        ),
-
-        lines=7,
-
-        max_lines=12,
-    )
-
-    gr.Markdown("### Example Traffic Scenarios")
-
-    preset_buttons = []
-
-    with gr.Row():
-
-        for name in PRESETS:
-
-            button = gr.Button(
-                name,
-                size="sm",
+            user_input = gr.Textbox(
+                label="Enter traffic conditions",
+                placeholder=(
+                    "Example:\n"
+                    "North has 25 vehicles waiting 90 seconds.\n"
+                    "South has 18 vehicles waiting 65 seconds.\n"
+                    "East has 8 vehicles waiting 25 seconds.\n"
+                    "West has 5 vehicles waiting 15 seconds.\n\n"
+                    "Ask SmartTraffic to analyse the intersection."
+                ),
+                lines=8,
+                max_lines=14,
+                elem_classes=["st-input"],
             )
 
-            preset_buttons.append(
-                (name, button)
+            gr.HTML(
+                '<div class="st-subtitle">Example traffic scenarios</div>'
+                '<div class="st-hint">Type your own traffic conditions above, '
+                'or click a scenario to fill them in. '
+                'Then press <b>Analyse Traffic</b>.</div>'
             )
 
-    with gr.Row():
+            preset_buttons = []
 
-        analyse_button = gr.Button(
-            "Analyse Traffic",
-            variant="primary",
-            size="lg",
-        )
+            with gr.Row(elem_classes=["st-presets"]):
+                for name in PRESETS:
+                    button = gr.Button(name, size="sm")
+                    preset_buttons.append((name, button))
 
-        reset_button = gr.Button(
-            "Reset",
-            variant="secondary",
-        )
+            with gr.Row(elem_classes=["st-actions"]):
+                analyse_button = gr.Button(
+                    "Analyse Traffic",
+                    variant="primary",
+                    size="lg",
+                    scale=2,
+                )
+                reset_button = gr.Button(
+                    "Reset",
+                    variant="secondary",
+                    size="lg",
+                    scale=1,
+                )
 
-    # ---------------------------------------------
-    # SECTION 2: AI DECISION
-    # ---------------------------------------------
+            gr.HTML(section_title(2, "Live Traffic Monitoring"))
 
-    gr.Markdown("## 2. AI Decision")
+            traffic_cards = gr.HTML(
+                render_historical_cards(LAST_VALID_SIMULATION_DATA)
+            )
 
-    agent_status = gr.HTML(
-        IDLE_STATUS
-    )
+        # ---- RIGHT: AI decision ----
+        with gr.Column(scale=1, min_width=420, elem_classes=["st-card"]):
 
-    ai_response = gr.Markdown(
-        "Waiting for traffic analysis...",
-        elem_id="ai-response",
-    )
+            gr.HTML(section_title(3, "AI Decision"))
 
-    # ---------------------------------------------
-    # SECTION 3: LIVE INTERSECTION
-    # ---------------------------------------------
+            agent_status = gr.HTML(IDLE_STATUS)
 
-    gr.Markdown("## 3. Live Traffic Intersection")
+            ai_response = gr.Markdown(
+                "Waiting for traffic analysis...",
+                elem_id="ai-response",
+            )
 
-    intersection_view = gr.HTML(
-        render_intersection()
-    )
+    # ROW 2
+    with gr.Row(equal_height=False, elem_classes=["st-row"]):
 
-    # ---------------------------------------------
-    # SECTION 4: LIVE TRAFFIC MONITORING
-    # ---------------------------------------------
+        # ---- LEFT: intersection ----
+        with gr.Column(scale=1, min_width=420, elem_classes=["st-card"]):
 
-    gr.Markdown("## 4. Live Traffic Monitoring")
+            gr.HTML(section_title(4, "Live Traffic Intersection"))
 
-    traffic_cards = gr.HTML(
-        render_historical_cards(LAST_VALID_SIMULATION_DATA)
-    )
+            intersection_view = gr.HTML(render_intersection())
 
-    # ---------------------------------------------
-    # SECTION 5: PERFORMANCE
-    # ---------------------------------------------
+        # ---- RIGHT: performance + logs ----
+        with gr.Column(scale=1, min_width=420, elem_classes=["st-card"]):
 
-    gr.Markdown("## 5. SIMULATION PERFORMANCE")
+            gr.HTML(section_title(5, "Simulation Performance"))
 
-    performance_view = gr.HTML(
-        render_metrics()
-    )
+            performance_view = gr.HTML(render_metrics())
 
-    # ---------------------------------------------
-    # SECTION 6: PYTHON EXECUTION LOGS
-    # ---------------------------------------------
+            gr.HTML(section_title(6, "Python Function Execution Logs"))
 
-    gr.Markdown("## 6. Python Function Execution Logs")
-
-    execution_logs = gr.JSON(
-        label="Actual Function Calls, Arguments and Results",
-        value={},
-    )
+            execution_logs = gr.JSON(
+                label="Actual Function Calls, Arguments and Results",
+                value={},
+                elem_classes=["st-logs"],
+            )
 
     # FOOTER.
-
     gr.HTML("""
-    <div style="
-        text-align:center;
-        color:#91a7c2;
-        font-size:11px;
-        padding:20px;
-    ">
+    <div class="st-footer">
         SmartTraffic is an academic simulation system.
         It does not control real-world traffic infrastructure.
     </div>
@@ -2221,16 +1536,13 @@ with gr.Blocks(
     ]
 
     # PRESET BUTTONS.
-
     for name, button in preset_buttons:
-
         button.click(
             fn=lambda n=name: create_preset_request(n),
             outputs=user_input,
         )
 
     # ONE-CLICK ANALYSIS.
-
     analyse_button.click(
         fn=analyse_traffic,
         inputs=user_input,
@@ -2239,7 +1551,6 @@ with gr.Blocks(
     )
 
     # ENTER KEY SUBMISSION.
-
     user_input.submit(
         fn=analyse_traffic,
         inputs=user_input,
@@ -2248,7 +1559,6 @@ with gr.Blocks(
     )
 
     # RESET.
-
     reset_button.click(
         fn=reset_dashboard,
         outputs=[
