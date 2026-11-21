@@ -21,6 +21,7 @@ import html
 
 from pathlib import Path
 
+import spaces
 import gradio as gr
 
 from agent.llm_agent import SmartTrafficAgent
@@ -52,6 +53,22 @@ CUSTOM_CSS = CSS_PATH.read_text(encoding="utf-8")
 # 3. INITIALISATION
 # =====================================================
 
+# =====================================================
+# ZEROGPU DIAGNOSTIC
+# =====================================================
+
+@spaces.GPU(duration=30)
+def check_gpu_status():
+    """Check whether ZeroGPU can allocate a CUDA device."""
+
+    import torch
+
+    test_tensor = torch.ones(1, device="cuda")
+
+    return (
+        "ZeroGPU is working successfully! "
+        f"Device: {test_tensor.device}"
+    )
 agent = SmartTrafficAgent()
 
 # Retain the most recent successfully completed simulation data.
@@ -1487,7 +1504,17 @@ with gr.Blocks(
                 "Waiting for traffic analysis...",
                 elem_id="ai-response",
             )
-
+            
+            gpu_button = gr.Button(
+                "Check GPU Status",
+                variant="secondary",
+            )
+            
+            gpu_status = gr.Textbox(
+                label="ZeroGPU Status",
+                interactive=False,
+                placeholder="GPU status has not been checked.",
+            )
     # ROW 2
     with gr.Row(equal_height=False, elem_classes=["st-row"]):
 
@@ -1534,6 +1561,12 @@ with gr.Blocks(
         execution_logs,
         controller_state,
     ]
+
+    # ZEROGPU DIAGNOSTIC.
+    gpu_button.click(
+        fn=check_gpu_status,
+        outputs=gpu_status, 
+    )
 
     # PRESET BUTTONS.
     for name, button in preset_buttons:
