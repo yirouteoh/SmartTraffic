@@ -68,6 +68,15 @@ CAR_SPACING = 8.0
 CAR_SPEED = 4.0
 INITIAL_CAR_DISTANCE = 6.0
 
+# New arrivals enter from just outside the dashboard's 1500 x 1500 SVG.
+# With the current dashboard scale (2.8 px per metre), 230 metres places
+# the vehicle just beyond each incoming road edge.
+ARRIVAL_SPAWN_DISTANCE = 230.0
+
+# Cars remain in the simulation until they travel beyond the opposite
+# edge of the visible road.
+EXIT_DISTANCE = 320.0
+
 POSITION_EPSILON = 0.000001
 
 DIRECTION_PREFIX = {
@@ -219,23 +228,40 @@ class TrafficSimulator:
             f"{self.vehicle_id_counters[direction]:03d}"
         )
 
-        # Find the end of the existing queue.
-        queue = [
-            vehicle
-            for vehicle in self.vehicles
-            if vehicle["direction"] == direction
-        ]
+        # Initial vehicles are placed on the visible approach as an
+        # existing queue. New arrivals enter from outside the screen.
+        if initial:
+            queue = [
+                vehicle
+                for vehicle in self.vehicles
+                if vehicle["direction"] == direction
+                and vehicle.get("movement_stage", "APPROACHING") == "APPROACHING"
+            ]
 
-        if queue:
-
-            position = max(
-                vehicle["position"]
-                for vehicle in queue
-            ) + CAR_SPACING
-
+            if queue:
+                position = max(
+                    vehicle["position"] for vehicle in queue
+                ) + CAR_SPACING
+            else:
+                position = INITIAL_CAR_DISTANCE
         else:
+            # Place each new arrival behind the furthest vehicle in its
+            # approach, but never inside the visible road at creation.
+            queue = [
+                vehicle
+                for vehicle in self.vehicles
+                if vehicle["direction"] == direction
+                and vehicle["position"] >= 0
+            ]
 
-            position = INITIAL_CAR_DISTANCE
+            furthest_queue_position = (
+                max((vehicle["position"] for vehicle in queue), default=0.0)
+                + CAR_SPACING
+            )
+            position = max(
+                ARRIVAL_SPAWN_DISTANCE,
+                furthest_queue_position,
+            )
 
         vehicle = {
             "vehicle_id": vehicle_id,
@@ -248,6 +274,8 @@ class TrafficSimulator:
             "position": round(position, 2),
 
             "status": "WAITING",
+
+            "movement_stage": "APPROACHING",
 
             "speed": 0.0,
 
@@ -343,30 +371,46 @@ class TrafficSimulator:
         self,
         direction: str,
     ) -> Optional[Dict[str, Any]]:
-        """Remove a car only after reaching the stop line."""
+        """Remove a car only after it has cleared the visible road."""
 
-        vehicle = self._get_front_vehicle(direction)
+        candidates = [
+            vehicle
+            for vehicle in self.vehicles
+            if vehicle["direction"] == direction
+            and vehicle["position"] <= -EXIT_DISTANCE
+        ]
 
-        if vehicle is None:
+        if not candidates:
             return None
 
-        if vehicle["position"] > POSITION_EPSILON:
-            return None
-
+        vehicle = min(candidates, key=lambda item: item["position"])
         self.vehicles.remove(vehicle)
-
         self.total_departures[direction] += 1
-
         self.vehicle_history.append({
             "time": self.simulation_time,
             "vehicle_id": vehicle["vehicle_id"],
             "direction": direction,
             "event": "DEPARTURE",
         })
-
         self._sync_vehicle_counts()
-
         return vehicle
+
+    def _remove_exited_vehicles(self) -> int:
+        """Remove all vehicles that have fully left the visible intersection."""
+        removed = 0
+        for direction in DIRECTIONS:
+            while self._remove_vehicle(direction) is not None:
+                removed += 1
+        return removed
+
+    def _has_vehicles_crossing(self) -> bool:
+        """Return whether any vehicle has passed its stop line but not exited."""
+        # A queued vehicle at position 0 has not entered the junction.
+        # Only vehicles with a negative position are inside/crossing it.
+        return any(
+            vehicle["position"] < -POSITION_EPSILON
+            for vehicle in self.vehicles
+        )
 
     # =================================================
     # 8. GET CURRENT TRAFFIC STATUS
@@ -488,90 +532,73 @@ class TrafficSimulator:
         moving: bool,
     ) -> None:
         """
-        Update individual car positions.
+        Move vehicles along one approach while preserving safe spacing.
 
-        RED / YELLOW / ALL_RED:
-            Cars remain stationary.
-
-        GREEN:
-            Cars move towards the stop line.
-            Queue spacing is maintained.
-
-        MOVING status is assigned only when the
-        actual position changes.
+        - Approaching vehicles move towards the stop line even on red.
+        - Vehicles stop at the stop line when their phase is not green.
+        - Vehicles that have crossed the stop line continue clearing the
+          junction during yellow/all-red clearance.
+        - Vehicles move through the junction during their green phase.
         """
 
         queue = sorted(
-            [
-                vehicle
-                for vehicle in self.vehicles
+            (
+                vehicle for vehicle in self.vehicles
                 if vehicle["direction"] == direction
-            ],
+            ),
             key=lambda vehicle: vehicle["position"],
         )
 
         previous_position = None
 
         for vehicle in queue:
-
             old_position = float(vehicle["position"])
+            already_crossing = old_position < -POSITION_EPSILON
 
-            if moving:
-
-                # Calculate desired new position.
-                desired_position = max(
-                    0.0,
-                    old_position - CAR_SPEED,
-                )
-
-                # Prevent cars from overlapping.
-                if previous_position is not None:
-
-                    new_position = max(
-                        desired_position,
-                        previous_position + CAR_SPACING,
-                    )
-
-                else:
-
-                    new_position = desired_position
-
-                new_position = round(
-                    new_position,
-                    2,
-                )
-
-                # Calculate actual movement distance.
-                actual_distance = max(
-                    0.0,
-                    round(
-                        old_position - new_position,
-                        2,
-                    ),
-                )
-
-                # Update actual position.
-                vehicle["position"] = new_position
-
-                # Speed is zero when position does not change.
-                vehicle["speed"] = (
-                    actual_distance
-                )
-
-                vehicle["status"] = (
-                    "MOVING"
-                    if actual_distance > POSITION_EPSILON
-                    else "WAITING"
-                )
-
+            # Cars already inside the junction must clear it. Cars on the
+            # approach may roll forward on red, but cannot cross position 0.
+            if moving or already_crossing:
+                desired_position = old_position - CAR_SPEED
             else:
+                desired_position = max(0.0, old_position - CAR_SPEED)
 
-                # No movement during non-green stages.
-                vehicle["speed"] = 0.0
+            # Maintain a minimum gap behind the vehicle ahead. Positions
+            # increase further upstream, so the following car must remain
+            # at least CAR_SPACING metres behind the preceding car.
+            if previous_position is not None:
+                new_position = max(
+                    desired_position,
+                    previous_position + CAR_SPACING,
+                )
+            else:
+                new_position = desired_position
 
+            # A vehicle that has not entered the junction must never cross
+            # the stop line unless its approach currently has a green.
+            if not moving and not already_crossing:
+                new_position = max(0.0, new_position)
+
+            new_position = round(new_position, 2)
+            actual_distance = round(old_position - new_position, 2)
+
+            vehicle["position"] = new_position
+            vehicle["speed"] = max(0.0, actual_distance)
+
+            if actual_distance > POSITION_EPSILON:
+                vehicle["status"] = "MOVING"
+                if new_position > POSITION_EPSILON:
+                    vehicle["movement_stage"] = "APPROACHING"
+                elif new_position > -100.0:
+                    vehicle["movement_stage"] = "CROSSING"
+                else:
+                    vehicle["movement_stage"] = "EXITING"
+            else:
                 vehicle["status"] = "WAITING"
+                vehicle["movement_stage"] = (
+                    "CROSSING" if already_crossing else "APPROACHING"
+                )
 
-            previous_position = vehicle["position"]
+            previous_position = new_position
 
     # =================================================
     # 12. SERVE FRONT VEHICLES
@@ -585,8 +612,8 @@ class TrafficSimulator:
         Serve vehicles according to the configured
         service rate.
 
-        A vehicle must reach the stop line before
-        it can be removed from the simulation.
+        A vehicle is counted as departed only after it has
+        travelled beyond the visible outgoing road.
         """
 
         self.service_credit[direction] += (
@@ -685,10 +712,13 @@ class TrafficSimulator:
 
                     self.waiting_times[direction] += 1
 
-                # Serve eligible vehicles during green.
+                # Preserve the existing service accounting during green.
                 if is_green:
-
                     self._serve_vehicles(direction)
+
+                # Remove cars only after they have travelled beyond
+                # the visible outgoing road, regardless of signal state.
+                self._remove_exited_vehicles()
 
                 # Reset waiting time if the queue is empty.
                 if self.vehicle_counts[direction] == 0:
@@ -1073,6 +1103,35 @@ class TrafficSimulator:
 
             return
 
+        # YELLOW after the active green period.
+        if self.cycle_stage == "YELLOW_CLEARANCE":
+
+            self._advance_time(1)
+            self.remaining_time -= 1
+
+            if self.remaining_time == 0:
+                self._apply_signal_transition(
+                    self.current_phase,
+                    "ALL_RED",
+                )
+                self.cycle_stage = "ALL_RED_CLEARANCE"
+                self.remaining_time = ALL_RED_DURATION
+
+            return
+
+        # ALL-RED clearance after the active green period.
+        if self.cycle_stage == "ALL_RED_CLEARANCE":
+
+            self._advance_time(1)
+            self.remaining_time -= 1
+
+            if self.remaining_time == 0:
+                self.cycle_stage = "CLEARANCE"
+                if not self._has_vehicles_crossing():
+                    self._complete_control_cycle()
+
+            return
+
         # ALL RED STAGE.
         if self.cycle_stage == "ALL_RED":
 
@@ -1093,6 +1152,17 @@ class TrafficSimulator:
 
             return
 
+        # CLEARANCE STAGE: all signals remain red while vehicles
+        # already inside the intersection finish crossing and exit.
+        if self.cycle_stage == "CLEARANCE":
+
+            self._advance_time(1)
+
+            if not self._has_vehicles_crossing():
+                self._complete_control_cycle()
+
+            return
+
         # GREEN STAGE.
         if self.cycle_stage == "GREEN":
 
@@ -1105,7 +1175,14 @@ class TrafficSimulator:
 
             if self.remaining_time == 0:
 
-                self._complete_control_cycle()
+                # End green safely before allowing crossing vehicles
+                # to clear the intersection under an all-red signal.
+                self._apply_signal_transition(
+                    self.current_phase,
+                    "YELLOW",
+                )
+                self.cycle_stage = "YELLOW_CLEARANCE"
+                self.remaining_time = YELLOW_DURATION
 
             return
 

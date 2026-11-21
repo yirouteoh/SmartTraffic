@@ -69,7 +69,13 @@ def test_signal_history_is_recorded(simulator):
         for item in simulator.history
     ]
 
-    assert states == ["YELLOW", "ALL_RED", "GREEN"]
+    assert states == [
+        "YELLOW",
+        "ALL_RED",
+        "GREEN",
+        "YELLOW",
+        "ALL_RED",
+    ]
 
 
 def test_pedestrian_blocks_vehicle_green(simulator):
@@ -93,7 +99,7 @@ def test_pedestrian_clearance_allows_next_phase(simulator):
     second_result = simulator.run_control_cycle()
 
     assert second_result["status"] == "SUCCESS"
-    assert simulator.current_signal_state == "GREEN"
+    assert simulator.current_signal_state == "ALL_RED"
 
 
 def test_invalid_pedestrian_status(simulator):
@@ -125,22 +131,34 @@ def test_automatic_vehicle_arrivals():
 
     simulator._advance_time(100)
 
-    assert simulator.get_performance_metrics()["total_arrivals"] > 0
+    assert (
+        simulator.get_performance_metrics()["total_arrivals"] > 0
+    )
 
 
 def test_random_seed_reproducibility():
-    vehicles = {d: 0 for d in
-                ("north", "south", "east", "west")}
+    vehicles = {
+        d: 0 for d in
+        ("north", "south", "east", "west")
+    }
 
-    waiting = {d: 0 for d in
-               ("north", "south", "east", "west")}
+    waiting = {
+        d: 0 for d in
+        ("north", "south", "east", "west")
+    }
 
     simulator1 = TrafficSimulator(
-        vehicles, waiting, "high", random_seed=42
+        vehicles,
+        waiting,
+        "high",
+        random_seed=42,
     )
 
     simulator2 = TrafficSimulator(
-        vehicles, waiting, "high", random_seed=42
+        vehicles,
+        waiting,
+        "high",
+        random_seed=42,
     )
 
     simulator1._advance_time(100)
@@ -174,11 +192,15 @@ def test_performance_metrics():
 
 
 def test_invalid_traffic_density():
-    vehicles = {d: 0 for d in
-                ("north", "south", "east", "west")}
+    vehicles = {
+        d: 0 for d in
+        ("north", "south", "east", "west")
+    }
 
-    waiting = {d: 0 for d in
-               ("north", "south", "east", "west")}
+    waiting = {
+        d: 0 for d in
+        ("north", "south", "east", "west")
+    }
 
     with pytest.raises(ValueError):
         TrafficSimulator(
