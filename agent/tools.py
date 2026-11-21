@@ -5,11 +5,10 @@ SmartTraffic - Python Tool Registry
 Responsibilities:
 1. Define tools available to the LLM.
 2. Maintain an allowlist of authorised functions.
-3. Use core.validation for argument validation.
+3. Validate tool arguments.
 4. Execute authorised Python functions.
+5. Pass previous-phase information for fair tie-breaking.
 """
-
-import json
 
 from typing import Any
 
@@ -35,6 +34,11 @@ TRAFFIC_DIRECTIONS = [
     "east",
     "west",
 ]
+
+VALID_PHASES = {
+    "NS",
+    "EW",
+}
 
 
 # ==========================================
@@ -81,17 +85,27 @@ AVAILABLE_TOOLS = [
             "name": "traffic_priority",
             "description": (
                 "Evaluate vehicle counts and waiting times "
-                "to select the highest-priority NS or EW phase."
+                "to select the highest-priority NS or EW phase. "
+                "Use previous_phase to alternate traffic phases "
+                "when priority scores are equal. "
+                "Use null when no previous phase is available."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "vehicle_counts": traffic_data_schema(),
+
                     "waiting_times": waiting_time_schema(),
+
+                    "previous_phase": {
+                        "type": ["string", "null"],
+                        "enum": ["NS", "EW", None],
+                    },
                 },
                 "required": [
                     "vehicle_counts",
                     "waiting_times",
+                    "previous_phase",
                 ],
                 "additionalProperties": False,
             },
@@ -114,11 +128,14 @@ AVAILABLE_TOOLS = [
                         "type": "string",
                         "enum": ["NS", "EW"],
                     },
+
                     "phaze": {
                         "type": "string",
                         "enum": ["NS", "EW"],
                     },
+
                     "vehicle_counts": traffic_data_schema(),
+
                     "waiting_times": waiting_time_schema(),
                 },
                 "required": [
@@ -169,11 +186,39 @@ def execute_tool(
     # Step 3: Execute traffic priority.
     if function_name == "traffic_priority":
 
-        validate_traffic_arguments(arguments)
+        # Validate previous phase.
+        previous_phase = arguments.get("previous_phase")
 
+        if previous_phase not in (None, "NS", "EW"):
+            raise ValueError(
+                "Previous phase must be NS, EW or None."
+            )
+
+        # Validate traffic information separately.
+        traffic_arguments = {
+            "vehicle_counts": arguments.get("vehicle_counts"),
+            "waiting_times": arguments.get("waiting_times"),
+        }
+
+        validate_traffic_arguments(traffic_arguments)
+
+        # Reject unexpected arguments.
+        allowed_arguments = {
+            "vehicle_counts",
+            "waiting_times",
+            "previous_phase",
+        }
+
+        if set(arguments.keys()) != allowed_arguments:
+            raise ValueError(
+                "Missing or unexpected traffic-priority arguments."
+            )
+
+        # Execute actual Python traffic priority calculation.
         result = check_traffic_priority(
             vehicle_counts=arguments["vehicle_counts"],
             waiting_times=arguments["waiting_times"],
+            previous_phase=previous_phase,
         )
 
         return result

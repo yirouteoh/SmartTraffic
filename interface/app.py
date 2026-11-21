@@ -74,9 +74,11 @@ CUSTOM_CSS = CSS_PATH.read_text(
 agent = SmartTrafficAgent()
 
 # Retain the most recent successfully completed simulation data.
-# This is process-wide because this project runs as a local, single-user
-# academic dashboard. Use gr.State if the app is later shared by users.
 LAST_VALID_SIMULATION_DATA = None
+
+# Preserve the last successfully served traffic phase.
+# None means that no previous phase is available yet.
+LAST_SERVED_PHASE = None
 
 DEFAULT_SCENARIO = (
     25, 90, 18, 65, 8, 25, 5, 15
@@ -1500,6 +1502,7 @@ def build_execution_log(
 
 def analyse_traffic(user_request):
     global LAST_VALID_SIMULATION_DATA
+    global LAST_SERVED_PHASE
 
     """
     Main integrated workflow.
@@ -1570,7 +1573,10 @@ def analyse_traffic(user_request):
 
     try:
 
-        result = agent.process_request(user_request)
+        result = agent.process_request(
+        user_input=user_request,
+        previous_phase=LAST_SERVED_PHASE,
+    )
 
     except Exception as error:
 
@@ -1908,13 +1914,23 @@ def analyse_traffic(user_request):
 
     final_metrics = final_data["performance_metrics"]
 
-    # Update historical data only after a successful completed cycle.
+    
+    # Update historical data and previous phase
+    # only after a successful completed cycle.
     if final_data["cycle_status"] == "COMPLETED":
+
         LAST_VALID_SIMULATION_DATA = {
             "vehicle_counts": final_status["vehicle_counts"].copy(),
             "waiting_times": final_status["waiting_times"].copy(),
-            "label": f"Completed simulation at {final_status['simulation_time']} seconds",
+            "label": (
+                f"Completed simulation at "
+                f"{final_status['simulation_time']} seconds"
+            ),
         }
+
+        # Save the phase successfully served.
+        LAST_SERVED_PHASE = selected_phase
+
 
     yield (
         status_html(
@@ -1952,6 +1968,10 @@ def analyse_traffic(user_request):
 # =====================================================
 
 def reset_dashboard():
+    global LAST_SERVED_PHASE
+
+    # Reset the phase history for a fresh experiment.
+    LAST_SERVED_PHASE = None
 
     return (
         "",

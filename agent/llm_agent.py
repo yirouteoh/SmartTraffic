@@ -12,10 +12,11 @@ Features:
 4. Strict Python function allowlist.
 5. Traffic argument validation.
 6. Sequential traffic calculations.
-7. Actual Python result verification.
-8. Consistent traffic data between functions.
-9. Structured execution logs.
-10. Final AI explanation using actual Python results.
+7. Previous-phase state validation.
+8. Actual Python result verification.
+9. Consistent traffic data between functions.
+10. Structured execution logs.
+11. Final AI explanation using actual Python results.
 
 Simulation is handled separately by DashboardController.
 """
@@ -59,7 +60,6 @@ REQUIRED_TOOL_SEQUENCE = (
     "green_time",
 )
 
-# Only this explicitly recognised namespace is supported.
 TOOL_NAMESPACE = "traffic_control."
 
 
@@ -104,23 +104,17 @@ AVAILABLE PYTHON TOOLS:
 
 Evaluates vehicle demand, waiting times and fairness.
 
-Returns:
-- selected_phase
-- priority_scores
-- vehicle_demand
-- average_waiting_time
+It also receives previous_phase information.
+
+When priority scores are equal:
+- If previous_phase is NS, select EW.
+- If previous_phase is EW, select NS.
+- If previous_phase is null, select NS as the initial phase.
 
 2. green_time
 
 Calculates the recommended green-light duration
 for the selected NS or EW phase.
-
-Returns:
-- selected_phase
-- green_time_seconds
-- queue_pressure
-- waiting_pressure
-- combined_pressure
 
 IMPORTANT RULES:
 
@@ -140,11 +134,12 @@ IMPORTANT RULES:
 
 TRAFFIC ANALYSIS WORKFLOW:
 
-When complete traffic information is provided:
-
 FIRST:
 Select traffic_priority and provide the exact vehicle
 counts and waiting times supplied by the user.
+
+Include the exact previous_phase value supplied
+in the execution context.
 
 SECOND:
 Read the actual Python traffic_priority result.
@@ -188,7 +183,9 @@ def build_result(
     request_status=None,
     ai_execution=None,
     simulation_status="NOT_STARTED",
+    previous_phase=None,
 ):
+
     """Create a consistent structured agent response."""
 
     tool_calls = tool_calls or []
@@ -233,6 +230,7 @@ def build_result(
         "timing": timing,
         "selected_phase": selected_phase,
         "green_duration": green_duration,
+        "previous_phase": previous_phase,
     }
 
 
@@ -243,6 +241,7 @@ def build_result(
 class SmartTrafficAgent:
 
     def __init__(self):
+
         """Initialise the SmartTraffic AI agent."""
 
         self.client = client
@@ -253,16 +252,8 @@ class SmartTrafficAgent:
     # =================================================
 
     def _normalise_tool_name(self, function_name):
-        """
-        Convert the recognised Qwen namespace into
-        the canonical registered Python function name.
 
-        Example:
-            traffic_control.traffic_priority
-            becomes traffic_priority.
-
-        Unknown namespaces and functions are rejected.
-        """
+        """Normalise the recognised Qwen namespace."""
 
         if not isinstance(function_name, str):
             return None
@@ -272,11 +263,9 @@ class SmartTrafficAgent:
             for tool in AVAILABLE_TOOLS
         }
 
-        # Already using the canonical name.
         if function_name in allowed_names:
             return function_name
 
-        # Support only the explicitly recognised namespace.
         if function_name.startswith(TOOL_NAMESPACE):
 
             canonical_name = function_name[
@@ -293,6 +282,7 @@ class SmartTrafficAgent:
     # =================================================
 
     def _get_tool(self, function_name):
+
         """Find an authorised registered Python tool."""
 
         canonical_name = self._normalise_tool_name(
@@ -322,7 +312,9 @@ class SmartTrafficAgent:
         decision=None,
         timing=None,
         ai_execution="INCOMPLETE",
+        previous_phase=None,
     ):
+
         """Return an incomplete result without simulation."""
 
         return build_result(
@@ -334,6 +326,7 @@ class SmartTrafficAgent:
             request_status="INCOMPLETE",
             ai_execution=ai_execution,
             simulation_status="NOT_STARTED",
+            previous_phase=previous_phase,
         )
 
     # =================================================
@@ -347,7 +340,9 @@ class SmartTrafficAgent:
         traffic_data,
         decision_result,
         priority_arguments,
+        previous_phase,
     ):
+
         """Validate arguments selected by the LLM."""
 
         if not isinstance(arguments, dict):
@@ -385,6 +380,28 @@ class SmartTrafficAgent:
                 raise ValueError(
                     "Waiting times do not match "
                     "the original user input."
+                )
+
+            if "previous_phase" not in arguments:
+                raise ValueError(
+                    "Previous phase information is required."
+                )
+
+            requested_previous_phase = arguments[
+                "previous_phase"
+            ]
+
+            if requested_previous_phase not in (
+                None, "NS", "EW"
+            ):
+                raise ValueError(
+                    "Previous phase must be NS, EW or None."
+                )
+
+            if requested_previous_phase != previous_phase:
+                raise ValueError(
+                    "Previous phase does not match "
+                    "the actual simulation state."
                 )
 
         # ---------------------------------------------
@@ -443,6 +460,7 @@ class SmartTrafficAgent:
             arguments.pop("phaze", None)
 
         else:
+
             raise ValueError(
                 f"Unauthorised function: {function_name}"
             )
@@ -457,6 +475,7 @@ class SmartTrafficAgent:
         result,
         decision_result,
     ):
+
         """Validate actual Python calculation results."""
 
         if not isinstance(result, dict):
@@ -494,6 +513,13 @@ class SmartTrafficAgent:
                         f"Invalid priority score for {phase}."
                     )
 
+            if result.get("previous_phase") not in (
+                None, "NS", "EW"
+            ):
+                raise ValueError(
+                    "Python returned invalid previous-phase information."
+                )
+
         elif function_name == "green_time":
 
             if decision_result is None:
@@ -529,12 +555,20 @@ class SmartTrafficAgent:
     # 11. PROCESS USER REQUEST
     # =================================================
 
-    def process_request(self, user_input: str) -> dict:
+    def process_request(
+        self,
+        user_input: str,
+        previous_phase=None,
+    ):
+
         """
         Process a traffic request.
 
         The LLM selects the available Python function.
         Python validates the function and its arguments.
+
+        previous_phase is supplied by the Gradio
+        application using the last successfully served phase.
         """
 
         execution_logs = []
@@ -544,10 +578,28 @@ class SmartTrafficAgent:
         priority_arguments = None
 
         # ---------------------------------------------
-        # STEP 1: INPUT VALIDATION
+        # STEP 1: VALIDATE PREVIOUS PHASE
+        # ---------------------------------------------
+
+        if previous_phase not in (None, "NS", "EW"):
+
+            return build_result(
+                success=False,
+                response="Invalid previous traffic phase.",
+                refused=True,
+                refusal_category="INVALID_PREVIOUS_PHASE",
+                request_status="REFUSED",
+                ai_execution="NOT_STARTED",
+                simulation_status="NOT_STARTED",
+                previous_phase=previous_phase,
+            )
+
+        # ---------------------------------------------
+        # STEP 2: INPUT VALIDATION
         # ---------------------------------------------
 
         try:
+
             validate_user_input(user_input)
 
         except ValueError as error:
@@ -560,10 +612,11 @@ class SmartTrafficAgent:
                 request_status="REFUSED",
                 ai_execution="NOT_STARTED",
                 simulation_status="NOT_STARTED",
+                previous_phase=previous_phase,
             )
 
         # ---------------------------------------------
-        # STEP 2: PYTHON SAFETY CHECK
+        # STEP 3: PYTHON SAFETY CHECK
         # ---------------------------------------------
 
         safety_result = check_user_request_safety(
@@ -583,10 +636,11 @@ class SmartTrafficAgent:
                 request_status="REFUSED",
                 ai_execution="NOT_STARTED",
                 simulation_status="NOT_STARTED",
+                previous_phase=previous_phase,
             )
 
         # ---------------------------------------------
-        # STEP 3: REQUIRED TRAFFIC INFORMATION
+        # STEP 4: REQUIRED TRAFFIC INFORMATION
         # ---------------------------------------------
 
         try:
@@ -606,10 +660,11 @@ class SmartTrafficAgent:
                 request_status="INCOMPLETE",
                 ai_execution="NOT_STARTED",
                 simulation_status="NOT_STARTED",
+                previous_phase=previous_phase,
             )
 
         # ---------------------------------------------
-        # STEP 4: INITIALISE CONVERSATION
+        # STEP 5: INITIALISE CONVERSATION
         # ---------------------------------------------
 
         messages = [
@@ -621,10 +676,20 @@ class SmartTrafficAgent:
                 "role": "user",
                 "content": user_input,
             },
+            {
+                "role": "system",
+                "content": (
+                    "CURRENT SIMULATION STATE:\n"
+                    f"previous_phase = {json.dumps(previous_phase)}\n\n"
+                    "You must use this exact previous_phase "
+                    "value in the traffic_priority function call. "
+                    "Do not invent or change it."
+                ),
+            },
         ]
 
         # ---------------------------------------------
-        # STEP 5: LLM-CONTROLLED TOOL SELECTION
+        # STEP 6: LLM-CONTROLLED TOOL SELECTION
         # ---------------------------------------------
 
         for round_number in range(MAX_TOOL_ROUNDS):
@@ -636,13 +701,8 @@ class SmartTrafficAgent:
                         model=self.model,
                         messages=messages,
                         tools=AVAILABLE_TOOLS,
-
-                        # Qwen independently selects a tool.
                         tool_choice="auto",
-
-                        # Only one tool call per response.
                         parallel_tool_calls=False,
-
                         temperature=0.1,
                         max_completion_tokens=1200,
                     )
@@ -659,10 +719,11 @@ class SmartTrafficAgent:
                     decision=decision_result,
                     timing=timing_result,
                     ai_execution="ERROR",
+                    previous_phase=previous_phase,
                 )
 
             # -----------------------------------------
-            # STEP 6: READ MODEL RESPONSE
+            # STEP 7: READ MODEL RESPONSE
             # -----------------------------------------
 
             if (
@@ -678,6 +739,7 @@ class SmartTrafficAgent:
                     decision=decision_result,
                     timing=timing_result,
                     ai_execution="ERROR",
+                    previous_phase=previous_phase,
                 )
 
             message = response.choices[0].message
@@ -692,6 +754,7 @@ class SmartTrafficAgent:
                     execution_logs=execution_logs,
                     decision=decision_result,
                     timing=timing_result,
+                    previous_phase=previous_phase,
                 )
 
             if len(message.tool_calls) != 1:
@@ -704,14 +767,13 @@ class SmartTrafficAgent:
                     execution_logs=execution_logs,
                     decision=decision_result,
                     timing=timing_result,
+                    previous_phase=previous_phase,
                 )
 
             tool_call = message.tool_calls[0]
 
-            # Preserve the exact name returned by Qwen.
             original_function_name = tool_call.function.name
 
-            # Resolve it to an explicitly authorised function.
             function_name = self._normalise_tool_name(
                 original_function_name
             )
@@ -719,7 +781,7 @@ class SmartTrafficAgent:
             raw_arguments = tool_call.function.arguments
 
             # -----------------------------------------
-            # STEP 7: CHECK FUNCTION ALLOWLIST
+            # STEP 8: CHECK FUNCTION ALLOWLIST
             # -----------------------------------------
 
             if function_name is None:
@@ -744,10 +806,11 @@ class SmartTrafficAgent:
                     execution_logs=execution_logs,
                     decision=decision_result,
                     timing=timing_result,
+                    previous_phase=previous_phase,
                 )
 
             # -----------------------------------------
-            # STEP 8: VERIFY EXECUTION ORDER
+            # STEP 9: VERIFY EXECUTION ORDER
             # -----------------------------------------
 
             expected_stage = REQUIRED_TOOL_SEQUENCE[
@@ -778,9 +841,9 @@ class SmartTrafficAgent:
                     execution_logs=execution_logs,
                     decision=decision_result,
                     timing=timing_result,
+                    previous_phase=previous_phase,
                 )
 
-            # Preserve the original assistant tool-call message.
             messages.append(
                 message.model_dump(
                     exclude_none=True
@@ -788,7 +851,7 @@ class SmartTrafficAgent:
             )
 
             # -----------------------------------------
-            # STEP 9: PARSE ARGUMENTS
+            # STEP 10: PARSE ARGUMENTS
             # -----------------------------------------
 
             arguments = None
@@ -807,17 +870,17 @@ class SmartTrafficAgent:
                         "Tool arguments must be a JSON object."
                     )
 
-                # Validate arguments against original user data.
                 self._validate_tool_arguments(
                     function_name=function_name,
                     arguments=arguments,
                     traffic_data=traffic_data,
                     decision_result=decision_result,
                     priority_arguments=priority_arguments,
+                    previous_phase=previous_phase,
                 )
 
                 # -------------------------------------
-                # STEP 10: EXECUTE PYTHON FUNCTION
+                # STEP 11: EXECUTE PYTHON FUNCTION
                 # -------------------------------------
 
                 result = execute_tool(
@@ -825,7 +888,6 @@ class SmartTrafficAgent:
                     arguments=arguments,
                 )
 
-                # Verify actual Python result.
                 self._validate_function_result(
                     function_name=function_name,
                     result=result,
@@ -858,7 +920,7 @@ class SmartTrafficAgent:
                 status = "ERROR"
 
             # -----------------------------------------
-            # STEP 11: RECORD EXECUTION LOG
+            # STEP 12: RECORD EXECUTION LOG
             # -----------------------------------------
 
             execution_logs.append({
@@ -874,7 +936,7 @@ class SmartTrafficAgent:
             })
 
             # -----------------------------------------
-            # STEP 12: STOP AFTER FAILED EXECUTION
+            # STEP 13: STOP AFTER FAILED EXECUTION
             # -----------------------------------------
 
             if status != "SUCCESS":
@@ -889,10 +951,11 @@ class SmartTrafficAgent:
                     decision=decision_result,
                     timing=timing_result,
                     ai_execution="COMPLETED",
+                    previous_phase=previous_phase,
                 )
 
             # -----------------------------------------
-            # STEP 13: PRESERVE ACTUAL PYTHON RESULTS
+            # STEP 14: PRESERVE ACTUAL PYTHON RESULTS
             # -----------------------------------------
 
             if function_name == "traffic_priority":
@@ -912,16 +975,16 @@ class SmartTrafficAgent:
 
                 timing_result = result
 
-            # Return actual function result to Qwen.
+            # Return actual Python result to Qwen.
             messages.append({
                 "role": "tool",
                 "tool_call_id": tool_call.id,
                 "content": json.dumps(result),
             })
 
-        # =================================================
-        # 14. VERIFY BOTH REQUIRED FUNCTIONS
-        # =================================================
+        # =============================================
+        # STEP 15: VERIFY BOTH REQUIRED FUNCTIONS
+        # =============================================
 
         if (
             decision_result is None
@@ -937,11 +1000,12 @@ class SmartTrafficAgent:
                 decision=decision_result,
                 timing=timing_result,
                 ai_execution="INCOMPLETE",
+                previous_phase=previous_phase,
             )
 
-        # =================================================
-        # 15. GENERATE FINAL AI EXPLANATION
-        # =================================================
+        # =============================================
+        # STEP 16: GENERATE FINAL AI EXPLANATION
+        # =============================================
 
         actual_results = {
             "traffic_priority": decision_result,
@@ -986,14 +1050,15 @@ class SmartTrafficAgent:
                 f"{type(error).__name__}: {str(error)}"
             )
 
-        # =================================================
-        # 16. FINAL RESULT
-        # =================================================
+        # =============================================
+        # STEP 17: FINAL RESULT
+        # =============================================
 
         if not explanation:
 
             explanation = (
                 "Both Python calculations completed successfully.\n\n"
+                f"Previous phase: {previous_phase}\n\n"
                 f"Selected phase: "
                 f"{decision_result['selected_phase']}\n\n"
                 f"Recommended green duration: "
@@ -1012,6 +1077,7 @@ class SmartTrafficAgent:
             request_status="SUCCESS",
             ai_execution="COMPLETED",
             simulation_status="NOT_STARTED",
+            previous_phase=previous_phase,
         )
 
         if explanation_error:

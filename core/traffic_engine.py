@@ -5,6 +5,7 @@ SmartTraffic - Traffic Decision Engine
 This module:
 1. Evaluates traffic priority for North-South and East-West phases.
 2. Calculates recommended green-light duration.
+3. Uses previous-phase information to alternate phases when scores are tied.
 """
 
 from typing import Dict, Any, Optional
@@ -25,7 +26,7 @@ def _validate_traffic_data(
     vehicle_counts: Dict[str, int],
     waiting_times: Dict[str, float],
 ) -> None:
-    """Validate the traffic information before calculation."""
+    """Validate traffic information before calculation."""
 
     if not isinstance(vehicle_counts, dict):
         raise ValueError("Vehicle counts must be a dictionary.")
@@ -43,18 +44,23 @@ def _validate_traffic_data(
         count = vehicle_counts[direction]
         waiting = waiting_times[direction]
 
-        # Reject booleans as well as non-integer counts.
         if isinstance(count, bool) or not isinstance(count, int):
             raise ValueError(f"Invalid vehicle count for {direction}.")
 
         if count < 0:
-            raise ValueError(f"Vehicle count for {direction} cannot be negative.")
+            raise ValueError(
+                f"Vehicle count for {direction} cannot be negative."
+            )
 
-        if isinstance(waiting, bool) or not isinstance(waiting, (int, float)):
+        if isinstance(waiting, bool) or not isinstance(
+            waiting, (int, float)
+        ):
             raise ValueError(f"Invalid waiting time for {direction}.")
 
         if waiting < 0:
-            raise ValueError(f"Waiting time for {direction} cannot be negative.")
+            raise ValueError(
+                f"Waiting time for {direction} cannot be negative."
+            )
 
 
 def check_traffic_priority(
@@ -72,40 +78,65 @@ def check_traffic_priority(
     Q = Normalised vehicle demand
     W = Normalised waiting-time pressure
     F = Normalised fairness score
+
+    When priority scores are equal, the phase alternates
+    according to the previously served phase.
     """
 
     _validate_traffic_data(vehicle_counts, waiting_times)
 
+    # Validate previous phase.
     if previous_phase not in (None, "NS", "EW"):
-        raise ValueError("Previous phase must be NS, EW or None.")
+        raise ValueError(
+            "Previous phase must be NS, EW or None."
+        )
 
+    # Initialise fairness information when unavailable.
     if cycles_since_served is None:
-        cycles_since_served = {"NS": 0, "EW": 0}
+        cycles_since_served = {
+            "NS": 0,
+            "EW": 0,
+        }
 
     if not isinstance(cycles_since_served, dict):
-        raise ValueError("Cycles since served must be a dictionary.")
+        raise ValueError(
+            "Cycles since served must be a dictionary."
+        )
 
     if set(cycles_since_served.keys()) != {"NS", "EW"}:
-        raise ValueError("Fairness data must contain NS and EW.")
+        raise ValueError(
+            "Fairness data must contain NS and EW."
+        )
 
     for phase, cycles in cycles_since_served.items():
+
         if isinstance(cycles, bool) or not isinstance(cycles, int):
-            raise ValueError(f"Invalid cycle count for {phase}.")
+            raise ValueError(
+                f"Invalid cycle count for {phase}."
+            )
 
         if cycles < 0:
-            raise ValueError(f"Cycle count for {phase} cannot be negative.")
+            raise ValueError(
+                f"Cycle count for {phase} cannot be negative."
+            )
 
-    # Calculate total vehicle demand for each phase.
+    # Calculate vehicle demand for both phases.
     phase_demand = {
-        phase: sum(vehicle_counts[d] for d in directions)
+        phase: sum(
+            vehicle_counts[direction]
+            for direction in directions
+        )
         for phase, directions in PHASES.items()
     }
 
     total_demand = sum(phase_demand.values())
 
-    # Calculate average waiting time for each phase.
+    # Calculate average waiting time.
     phase_waiting = {
-        phase: sum(waiting_times[d] for d in directions) / len(directions)
+        phase: sum(
+            waiting_times[direction]
+            for direction in directions
+        ) / len(directions)
         for phase, directions in PHASES.items()
     }
 
@@ -129,7 +160,7 @@ def check_traffic_priority(
         for phase in PHASES
     }
 
-    # Normalise fairness using cycles since last service.
+    # Normalise fairness.
     maximum_cycles = max(cycles_since_served.values())
 
     fairness_scores = {
@@ -140,7 +171,7 @@ def check_traffic_priority(
         for phase in PHASES
     }
 
-    # Calculate the weighted priority score.
+    # Calculate weighted priority scores.
     priority_scores = {}
 
     for phase in PHASES:
@@ -151,17 +182,32 @@ def check_traffic_priority(
             4,
         )
 
-    # Select the phase with the highest score.
+    # Select the phase with the higher priority score.
     if priority_scores["NS"] > priority_scores["EW"]:
+
         selected_phase = "NS"
+        selection_reason = "NS achieved the higher priority score."
 
     elif priority_scores["EW"] > priority_scores["NS"]:
+
         selected_phase = "EW"
+        selection_reason = "EW achieved the higher priority score."
 
     else:
-        # Alternate after a tie to avoid always favouring one phase.
+        # Equal scores: alternate from the previous phase.
         selected_phase = (
             "EW" if previous_phase == "NS" else "NS"
+        )
+
+        selection_reason = (
+            f"Both phases had equal priority scores. "
+            f"The previous phase was {previous_phase}. "
+            f"SmartTraffic selected {selected_phase} "
+            f"to maintain phase alternation."
+            if previous_phase is not None
+            else
+            "Both phases had equal priority scores. "
+            "NS was selected as the default initial phase."
         )
 
     return {
@@ -172,9 +218,11 @@ def check_traffic_priority(
         "demand_scores": demand_scores,
         "waiting_scores": waiting_scores,
         "fairness_scores": fairness_scores,
+        "previous_phase": previous_phase,
+        "selection_reason": selection_reason,
         "explanation": (
-            f"Phase {selected_phase} received priority because "
-            "it achieved the highest weighted traffic priority score."
+            f"Phase {selected_phase} was selected. "
+            f"{selection_reason}"
         ),
     }
 
@@ -187,16 +235,17 @@ def calculate_green_time(
     max_green: int = MAX_GREEN_TIME,
 ) -> Dict[str, Any]:
     """
-    Calculate the recommended green-light duration.
+    Calculate recommended green-light duration.
 
-    The calculation considers vehicle demand and waiting time.
-    The result is always restricted to the configured safety limits.
+    The result is restricted to the configured safety limits.
     """
 
     _validate_traffic_data(vehicle_counts, waiting_times)
 
     if selected_phase not in PHASES:
-        raise ValueError("Selected phase must be NS or EW.")
+        raise ValueError(
+            "Selected phase must be NS or EW."
+        )
 
     if (
         isinstance(min_green, bool)
@@ -204,45 +253,60 @@ def calculate_green_time(
         or isinstance(max_green, bool)
         or not isinstance(max_green, int)
     ):
-        raise ValueError("Green-time limits must be integers.")
+        raise ValueError(
+            "Green-time limits must be integers."
+        )
 
     if min_green <= 0 or max_green < min_green:
-        raise ValueError("Invalid green-time limits.")
+        raise ValueError(
+            "Invalid green-time limits."
+        )
 
     directions = PHASES[selected_phase]
 
     phase_vehicles = sum(
-        vehicle_counts[d] for d in directions
+        vehicle_counts[direction]
+        for direction in directions
     )
 
     maximum_queue = 30
     maximum_wait = 120
 
-    # Normalise traffic demand and waiting-time pressure.
-    queue_pressure = min(phase_vehicles / maximum_queue, 1.0)
+    # Calculate normalised queue pressure.
+    queue_pressure = min(
+        phase_vehicles / maximum_queue,
+        1.0,
+    )
 
+    # Calculate average waiting time.
     average_wait = sum(
-        waiting_times[d] for d in directions
+        waiting_times[direction]
+        for direction in directions
     ) / len(directions)
 
-    waiting_pressure = min(average_wait / maximum_wait, 1.0)
+    # Calculate normalised waiting-time pressure.
+    waiting_pressure = min(
+        average_wait / maximum_wait,
+        1.0,
+    )
 
-    # Calculate combined traffic pressure.
+    # Calculate combined pressure.
     pressure = (
         0.60 * queue_pressure
         + 0.40 * waiting_pressure
     )
 
-    # Calculate and enforce green-time limits.
+    # Calculate green-light duration.
     raw_green_time = min_green + pressure * (
         max_green - min_green
     )
 
     green_time = round(raw_green_time)
 
+    # Enforce minimum and maximum limits.
     green_time = max(
         min_green,
-        min(green_time, max_green)
+        min(green_time, max_green),
     )
 
     return {
