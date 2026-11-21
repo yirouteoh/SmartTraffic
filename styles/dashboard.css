@@ -734,18 +734,32 @@ button.secondary:hover {
     color: var(--st-accent) !important;
 }
 
+
 /* Loading spinner shown while the AI is analysing */
 .st-spinner {
-    display: inline-block;
-    width: 16px;
-    height: 16px;
-    margin-right: 10px;
-    border: 3px solid rgba(217, 119, 6, .25);
-    border-top-color: var(--st-warn);
-    border-radius: 50%;
-    vertical-align: -3px;
-    animation: st-spin .8s linear infinite;
+    display: inline-block !important;
+    width: 17px !important;
+    height: 17px !important;
+    min-width: 17px !important;
+    min-height: 17px !important;
+    margin-right: 10px !important;
+    border: 3px solid rgba(217, 119, 6, 0.25) !important;
+    border-top-color: #d97706 !important;
+    border-radius: 50% !important;
+    vertical-align: -3px !important;
+    flex-shrink: 0 !important;
+    animation: st-spin 0.8s linear infinite !important;
 }
+
+@keyframes st-spin {
+    0% {
+        transform: rotate(0deg);
+    }
+    100% {
+        transform: rotate(360deg);
+    }
+}
+
 
 @keyframes st-spin {
     to { transform: rotate(360deg); }
