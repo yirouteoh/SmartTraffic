@@ -1517,6 +1517,10 @@ with gr.Blocks(
                 elem_id="ai-response",
             )
             
+            processing_status = gr.Markdown(
+    "🟢 **READY** — Enter traffic conditions to begin.",
+)
+            
             gpu_button = gr.Button(
                 "Check GPU Status",
                 variant="secondary",
@@ -1577,6 +1581,45 @@ with gr.Blocks(
         controller_state,
     ]
 
+    # =================================================
+    # PROCESSING MODE: LOCK AND UNLOCK CONTROLS
+    # =================================================
+
+    locked_controls = [
+        user_input,
+        analyse_button,
+        reset_button,
+        gpu_button,
+    ]
+
+    # Include all traffic preset buttons.
+    locked_controls.extend(
+        button for name, button in preset_buttons
+    )
+
+
+    def lock_controls():
+        """Disable user controls while analysis is running."""
+
+        return (
+            [gr.update(interactive=False) for _ in locked_controls]
+            + [
+                "⏳ **PROCESSING** — SmartTraffic is analysing traffic "
+                "conditions and running the simulation. Please wait..."
+            ]
+        )
+
+
+    def unlock_controls():
+        """Re-enable user controls after analysis finishes."""
+
+        return (
+            [gr.update(interactive=True) for _ in locked_controls]
+            + [
+                "🟢 **READY** — Processing finished. You can submit another request."
+            ]
+        )
+    
     # ZEROGPU DIAGNOSTIC.
     gpu_button.click(
         fn=check_gpu_status,
@@ -1592,18 +1635,30 @@ with gr.Blocks(
 
     # ONE-CLICK ANALYSIS.
     analyse_button.click(
-        fn=analyse_traffic,
-        inputs=user_input,
-        outputs=outputs,
-        show_progress="full",
+        fn=lock_controls,
+    outputs=locked_controls + [processing_status],
+).then(
+    fn=analyse_traffic,
+    inputs=user_input,
+    outputs=outputs,
+    show_progress="full",
+).then(
+    fn=unlock_controls,
+    outputs=locked_controls + [processing_status],
     )
 
     # ENTER KEY SUBMISSION.
     user_input.submit(
-        fn=analyse_traffic,
-        inputs=user_input,
-        outputs=outputs,
-        show_progress="full",
+        fn=lock_controls,
+    outputs=locked_controls + [processing_status],
+).then(
+    fn=analyse_traffic,
+    inputs=user_input,
+    outputs=outputs,
+    show_progress="full",
+).then(
+    fn=unlock_controls,
+    outputs=locked_controls + [processing_status],
     )
 
     # RESET.
