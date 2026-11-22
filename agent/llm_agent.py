@@ -704,7 +704,7 @@ class SmartTrafficAgent:
                         tool_choice="auto",
                         parallel_tool_calls=False,
                         temperature=0.1,
-                        max_completion_tokens=1200,
+                        max_completion_tokens=500,
                     )
                 )
 
@@ -1032,7 +1032,7 @@ class SmartTrafficAgent:
                     model=self.model,
                     messages=messages,
                     temperature=0.1,
-                    max_completion_tokens=1200,
+                    max_completion_tokens=800,
                 )
             )
 
