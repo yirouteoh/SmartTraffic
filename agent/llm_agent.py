@@ -27,6 +27,8 @@ import json
 from dotenv import load_dotenv
 from groq import Groq
 
+from agent.gemini_provider import GeminiFallbackProvider
+
 from agent.tools import (
     AVAILABLE_TOOLS,
     execute_tool,
@@ -244,8 +246,46 @@ class SmartTrafficAgent:
 
         """Initialise the SmartTraffic AI agent."""
 
+        # Primary provider: Groq Qwen.
         self.client = client
         self.model = MODEL
+
+        # Secondary provider: Google Gemini.
+        try:
+            self.gemini = GeminiFallbackProvider()
+            self.gemini_available = True
+
+        except Exception as error:
+            self.gemini = None
+            self.gemini_available = False
+
+            print(
+                "Gemini fallback unavailable:",
+                str(error)
+            )
+
+    # =================================================
+    # 6. CLASSIFY RECOVERABLE GROQ ERRORS
+    # =================================================
+
+    def _is_recoverable_provider_error(self, error):
+
+        """Return True only for temporary provider availability errors."""
+
+        status_code = getattr(error, "status_code", None)
+        if status_code in (408, 409, 429) or (
+            isinstance(status_code, int) and status_code >= 500
+        ):
+            return True
+
+        error_name = type(error).__name__.lower()
+        recoverable_names = {
+            "apiconnectionerror",
+            "apitimeouterror",
+            "internalservererror",
+            "ratelimiterror",
+        }
+        return error_name in recoverable_names
 
     # =================================================
     # 6. NORMALISE QWEN FUNCTION NAMES
@@ -692,12 +732,21 @@ class SmartTrafficAgent:
         # STEP 6: LLM-CONTROLLED TOOL SELECTION
         # ---------------------------------------------
 
+        active_provider = "groq"
+        provider_used = "Groq"
+
         for round_number in range(MAX_TOOL_ROUNDS):
 
-            try:
+            expected_stage = REQUIRED_TOOL_SEQUENCE[round_number]
 
-                response = (
-                    self.client.chat.completions.create(
+            # -----------------------------------------
+            # STEP 6A: REQUEST FUNCTION FROM ACTIVE AI
+            # -----------------------------------------
+
+            if active_provider == "groq":
+
+                try:
+                    response = self.client.chat.completions.create(
                         model=self.model,
                         messages=messages,
                         tools=AVAILABLE_TOOLS,
@@ -706,79 +755,114 @@ class SmartTrafficAgent:
                         temperature=0.1,
                         max_completion_tokens=500,
                     )
-                )
 
-            except Exception as error:
+                    if not response.choices or response.choices[0].message is None:
+                        raise RuntimeError("Groq returned an empty response.")
 
-                return self._incomplete_result(
-                    message=(
-                        "AI service error during tool selection: "
-                        f"{type(error).__name__}: {str(error)}"
-                    ),
-                    execution_logs=execution_logs,
-                    decision=decision_result,
-                    timing=timing_result,
-                    ai_execution="ERROR",
-                    previous_phase=previous_phase,
-                )
+                    message = response.choices[0].message
+
+                    if not message.tool_calls or len(message.tool_calls) != 1:
+                        raise RuntimeError(
+                            "Groq did not return exactly one required Python function call."
+                        )
+
+                    tool_call = message.tool_calls[0]
+                    original_function_name = tool_call.function.name
+                    function_name = self._normalise_tool_name(
+                        original_function_name
+                    )
+                    raw_arguments = tool_call.function.arguments
+                    groq_message = message
+
+                except Exception as error:
+
+                    if (
+                        self.gemini_available
+                        and self._is_recoverable_provider_error(error)
+                    ):
+                        print(
+                            "Groq unavailable; switching to Gemini:",
+                            f"{type(error).__name__}: {error}"
+                        )
+                        active_provider = "gemini"
+                        provider_used = "Gemini"
+
+                        try:
+                            gemini_call = self.gemini.select_tool(
+                                function_name=expected_stage,
+                                user_input=user_input,
+                                previous_phase=previous_phase,
+                                decision_result=decision_result,
+                            )
+                            original_function_name = gemini_call["function_name"]
+                            function_name = gemini_call["function_name"]
+                            raw_arguments = gemini_call["arguments"]
+                            groq_message = None
+
+                        except Exception as gemini_error:
+                            return self._incomplete_result(
+                                message=(
+                                    "Groq failed and Gemini fallback also failed: "
+                                    f"{type(gemini_error).__name__}: {gemini_error}"
+                                ),
+                                execution_logs=execution_logs,
+                                decision=decision_result,
+                                timing=timing_result,
+                                ai_execution="ERROR",
+                                previous_phase=previous_phase,
+                            )
+                    else:
+                        return self._incomplete_result(
+                            message=(
+                                "Groq AI service error during tool selection: "
+                                f"{type(error).__name__}: {error}"
+                            ),
+                            execution_logs=execution_logs,
+                            decision=decision_result,
+                            timing=timing_result,
+                            ai_execution="ERROR",
+                            previous_phase=previous_phase,
+                        )
+
+            else:
+                # Gemini resumes at the next uncompleted workflow stage.
+                try:
+                    gemini_call = self.gemini.select_tool(
+                        function_name=expected_stage,
+                        user_input=user_input,
+                        previous_phase=previous_phase,
+                        decision_result=decision_result,
+                    )
+                    original_function_name = gemini_call["function_name"]
+                    function_name = gemini_call["function_name"]
+                    raw_arguments = gemini_call["arguments"]
+                    groq_message = None
+
+                except Exception as error:
+                    return self._incomplete_result(
+                        message=(
+                            "Gemini fallback error during tool selection: "
+                            f"{type(error).__name__}: {error}"
+                        ),
+                        execution_logs=execution_logs,
+                        decision=decision_result,
+                        timing=timing_result,
+                        ai_execution="ERROR",
+                        previous_phase=previous_phase,
+                    )
 
             # -----------------------------------------
-            # STEP 7: READ MODEL RESPONSE
+            # STEP 7: NORMALISE PROVIDER RESPONSE
             # -----------------------------------------
 
-            if (
-                not response.choices
-                or response.choices[0].message is None
-            ):
-
+            if function_name is None:
                 return self._incomplete_result(
-                    message=(
-                        "The AI service returned an empty response."
-                    ),
-                    execution_logs=execution_logs,
-                    decision=decision_result,
-                    timing=timing_result,
-                    ai_execution="ERROR",
-                    previous_phase=previous_phase,
-                )
-
-            message = response.choices[0].message
-
-            if not message.tool_calls:
-
-                return self._incomplete_result(
-                    message=(
-                        "The AI did not select a required "
-                        "Python function. No simulation was started."
-                    ),
+                    message=f"Unauthorised Python function: {original_function_name}",
                     execution_logs=execution_logs,
                     decision=decision_result,
                     timing=timing_result,
                     previous_phase=previous_phase,
                 )
-
-            if len(message.tool_calls) != 1:
-
-                return self._incomplete_result(
-                    message=(
-                        "Multiple tool calls were returned. "
-                        "SmartTraffic rejected the request."
-                    ),
-                    execution_logs=execution_logs,
-                    decision=decision_result,
-                    timing=timing_result,
-                    previous_phase=previous_phase,
-                )
-
-            tool_call = message.tool_calls[0]
-
-            original_function_name = tool_call.function.name
-
-            function_name = self._normalise_tool_name(
-                original_function_name
-            )
-
-            raw_arguments = tool_call.function.arguments
 
             # -----------------------------------------
             # STEP 8: CHECK FUNCTION ALLOWLIST
@@ -844,11 +928,10 @@ class SmartTrafficAgent:
                     previous_phase=previous_phase,
                 )
 
-            messages.append(
-                message.model_dump(
-                    exclude_none=True
+            if active_provider == "groq" and groq_message is not None:
+                messages.append(
+                    groq_message.model_dump(exclude_none=True)
                 )
-            )
 
             # -----------------------------------------
             # STEP 10: PARSE ARGUMENTS
@@ -975,12 +1058,14 @@ class SmartTrafficAgent:
 
                 timing_result = result
 
-            # Return actual Python result to Qwen.
-            messages.append({
-                "role": "tool",
-                "tool_call_id": tool_call.id,
-                "content": json.dumps(result),
-            })
+            # Return the actual result to Groq when it is still active.
+            # Gemini receives completed results explicitly in select_tool().
+            if active_provider == "groq":
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tool_call.id,
+                    "content": json.dumps(result),
+                })
 
         # =============================================
         # STEP 15: VERIFY BOTH REQUIRED FUNCTIONS
@@ -1027,28 +1112,49 @@ class SmartTrafficAgent:
 
         try:
 
-            final_response = (
-                self.client.chat.completions.create(
-                    model=self.model,
-                    messages=messages,
-                    temperature=0.1,
-                    max_completion_tokens=800,
+            if active_provider == "gemini":
+                explanation = self.gemini.generate_explanation(
+                    user_input=user_input,
+                    previous_phase=previous_phase,
+                    decision_result=decision_result,
+                    timing_result=timing_result,
                 )
-            )
+            else:
+                try:
+                    final_response = self.client.chat.completions.create(
+                        model=self.model,
+                        messages=messages,
+                        temperature=0.1,
+                        max_completion_tokens=800,
+                    )
+                    explanation = final_response.choices[0].message.content
 
-            explanation = (
-                final_response.choices[0].message.content
-            )
+                except Exception as groq_error:
+                    if (
+                        self.gemini_available
+                        and self._is_recoverable_provider_error(groq_error)
+                    ):
+                        print(
+                            "Groq explanation unavailable; switching to Gemini:",
+                            f"{type(groq_error).__name__}: {groq_error}"
+                        )
+                        active_provider = "gemini"
+                        provider_used = "Gemini"
+                        explanation = self.gemini.generate_explanation(
+                            user_input=user_input,
+                            previous_phase=previous_phase,
+                            decision_result=decision_result,
+                            timing_result=timing_result,
+                        )
+                    else:
+                        raise
 
             explanation_error = None
 
         except Exception as error:
 
             explanation = None
-
-            explanation_error = (
-                f"{type(error).__name__}: {str(error)}"
-            )
+            explanation_error = f"{type(error).__name__}: {str(error)}"
 
         # =============================================
         # STEP 17: FINAL RESULT
@@ -1080,10 +1186,18 @@ class SmartTrafficAgent:
             previous_phase=previous_phase,
         )
 
-        if explanation_error:
+        final_result["provider"] = provider_used
 
-            final_result["explanation_warning"] = (
-                explanation_error
-            )
+        final_result["model_used"] = (
+            self.gemini.model
+            if active_provider == "gemini"
+            else self.model
+        )
+
+        # Ensure the dashboard displays the actual active model.
+        final_result["model"] = final_result["model_used"]
+
+        if explanation_error:
+            final_result["explanation_warning"] = explanation_error
 
         return final_result

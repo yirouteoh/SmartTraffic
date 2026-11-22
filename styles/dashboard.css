@@ -782,6 +782,10 @@ html {
     scroll-padding-top: 24px;
 }
 
+#live-intersection {
+    scroll-margin-top: 24px;
+}
+
 .st-quick-nav {
     display: flex;
     justify-content: center;
