@@ -1162,13 +1162,26 @@ class SmartTrafficAgent:
 
         if not explanation:
 
+            # Both AI providers failed to generate an explanation.
+            # Preserve the actual Python calculation results.
+            
+            if not explanation_error:
+                explanation_error = (
+                    "AI provider returned an empty explanation. "
+                    "Python deterministic fallback was used."
+                )
+
+            provider_used = "Python Fallback"
+
             explanation = (
-                "Both Python calculations completed successfully.\n\n"
-                f"Previous phase: {previous_phase}\n\n"
+                "AI explanation services are currently unavailable.\n\n"
+                "However, both Python traffic calculations "
+                "completed successfully.\n\n"
                 f"Selected phase: "
                 f"{decision_result['selected_phase']}\n\n"
                 f"Recommended green duration: "
                 f"{timing_result['green_time_seconds']} seconds.\n\n"
+                "The values above are actual Python calculation results. "
                 "This recommendation is for simulation purposes only."
             )
 
@@ -1188,11 +1201,14 @@ class SmartTrafficAgent:
 
         final_result["provider"] = provider_used
 
-        final_result["model_used"] = (
-            self.gemini.model
-            if active_provider == "gemini"
-            else self.model
-        )
+        if explanation_error:
+            final_result["model_used"] = "Python deterministic fallback"
+        else:
+            final_result["model_used"] = (
+                self.gemini.model
+                if active_provider == "gemini"
+                else self.model
+            )
 
         # Ensure the dashboard displays the actual active model.
         final_result["model"] = final_result["model_used"]

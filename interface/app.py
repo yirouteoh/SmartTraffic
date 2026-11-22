@@ -842,7 +842,16 @@ def build_execution_log(result, controller=None):
     """Build execution logs with distinct request and runtime statuses."""
 
     logs = {
-        "AI model": result.get("model"),
+       "AI provider": result.get("provider", "Unknown"),
+       "AI model": result.get("model_used", result.get("model")),
+        "Explanation status": (
+            "PYTHON FALLBACK - AI explanation unavailable"
+            if result.get("explanation_warning")
+            else "AI GENERATED"
+            if result.get("success")
+            else "NOT GENERATED"
+        ),
+"Explanation warning": result.get("explanation_warning"),
         "Request status": result.get(
             "request_status",
             "REFUSED" if result.get("refused") else (
@@ -929,7 +938,7 @@ def analyse_traffic(user_request):
             "warn",
             "ANALYSING TRAFFIC",
             [
-                "Qwen is processing your traffic request.",
+                "AI provider is processing your traffic request.",
                 "Python tool execution is in progress."
             ],
             loading=True,
@@ -1429,9 +1438,9 @@ with gr.Blocks(
             </div>
         </div>
         <div class="st-chips">
-            <span class="st-chip">QWEN AI</span>
-            <span class="st-chip">GROQ INFERENCE</span>
-            <span class="st-chip">PYTHON FUNCTION CALLING</span>
+        <span class="st-chip">GROQ PRIMARY</span>
+<span class="st-chip">GEMINI BACKUP</span>
+<span class="st-chip">PYTHON FUNCTION CALLING</span>
         </div>
     </div>
     """)
