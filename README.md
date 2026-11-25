@@ -18,11 +18,11 @@ SmartTraffic is an academic AI-agent project that analyses traffic conditions at
 
 > **Important:** SmartTraffic is an academic simulation. It does not connect to or control real-world traffic lights or road infrastructure.
 
-## 🌐 Live Demo
+## Live Demo
 
 Launch the interactive application on **[Hugging Face Spaces](https://huggingface.co/spaces/Rayzed0224/smarttraffic-ai)**.
 
-## 🖥️ Dashboard Preview
+## Dashboard Preview
 
 The Gradio dashboard brings traffic input, AI decisions, live monitoring, simulation performance, and Python execution logs together in one interface.
 
@@ -46,7 +46,7 @@ The simulator visualises the North, South, East, and West approaches, vehicle mo
 
 The dashboard reports simulation performance and exposes the Python function calls, arguments, and results used during the decision workflow.
 
-## ✨ Key Features
+## Key Features
 
 - **AI-assisted traffic prioritisation** – evaluates North–South (NS) and East–West (EW) traffic phases using vehicle demand, waiting-time pressure, and fairness.
 - **Python function calling** – the LLM selects authorised Python tools; deterministic Python functions perform the calculations.
@@ -57,7 +57,7 @@ The dashboard reports simulation performance and exposes the Python function cal
 - **Transparent execution logs** – displays the actual Python function names, arguments, and results.
 - **Interactive Gradio dashboard** – combines traffic requests, AI explanations, monitoring, simulation metrics, and execution logs.
 
-## 🧠 How It Works
+## How It Works
 
 The system separates language-model orchestration from traffic calculations and safety enforcement. The LLM coordinates the authorised tools, while Python validates inputs, performs calculations, and controls the simulation workflow.
 
@@ -112,7 +112,7 @@ When both phases have equal priority, the agent uses the previous successfully s
 
 The stored phase is updated only after a successful simulation.
 
-## 🛡️ Safety and Validation
+## Safety and Validation
 
 Safety checks are enforced in Python rather than relying only on the language model.
 
@@ -126,7 +126,7 @@ Safety checks are enforced in Python rather than relying only on the language mo
 - **Signal transition validation:** the simulator enforces `GREEN → YELLOW → ALL_RED → GREEN` and prevents vehicle green activation during pedestrian crossings.
 - **Real-world control restriction:** requests to operate actual traffic infrastructure are not supported.
 
-## 🔁 AI Provider Configuration
+## AI Provider Configuration
 
 | Role | Provider / Model | Purpose |
 |---|---|---|
@@ -135,7 +135,7 @@ Safety checks are enforced in Python rather than relying only on the language mo
 
 The fallback is restricted to the authorised function required at the current workflow stage. Previously completed Python results are preserved, avoiding unnecessary repeated calculations.
 
-## 🧪 Testing and Evaluation
+## Testing and Evaluation
 
 The project was evaluated using eight challenge scenarios and additional provider-fallback and regression tests.
 
@@ -158,7 +158,7 @@ The eight challenge scenarios covered:
 
 The three fallback tests simulated recoverable Groq failures at the initial function stage, during the workflow, and during final explanation generation. The report records successful Gemini fallback in all three cases.
 
-## 🧰 Technology Stack
+## Technology Stack
 
 - **Language:** Python
 - **Interface:** Gradio 6.32.0
@@ -168,7 +168,7 @@ The three fallback tests simulated recoverable Groq failures at the initial func
 - **Simulation:** Python-based four-way traffic simulation
 - **Deployment:** Hugging Face Spaces
 
-## ⚙️ Setup and Configuration
+## Setup and Configuration
 
 ### 1. Clone the repository
 
@@ -221,11 +221,11 @@ python main.py
 
 Open the local Gradio URL printed in the terminal.
 
-## 📁 Repository Structure
+## Repository Structure
 
 The application is organised into separate components for the agent, Python traffic logic, validation, simulation, and user interface. Refer to the repository itself for the current file and folder names.
 
-## ⚠️ Limitations
+## Limitations
 
 - The application analyses user-provided traffic information; it does not obtain live traffic data from physical road sensors.
 - Traffic behaviour is simulated and does not represent a certified traffic-control system.
@@ -233,10 +233,10 @@ The application is organised into separate components for the agent, Python traf
 - AI-provider availability depends on the external Groq and Gemini services and their API limits.
 - The system is intended for academic demonstration, experimentation, and learning only.
 
-## 🎓 Project Context
+## Project Context
 
 Developed for **WQF7002 – Artificial Intelligence Techniques** as an academic project on intelligent-agent design, LLM integration, Python function calling, safety guardrails, and traffic simulation.
 
-## 📄 Disclaimer
+## Disclaimer
 
 SmartTraffic AI Assistant is an academic traffic simulation system. It is not certified for operational traffic management and must not be used to control real-world traffic infrastructure.
