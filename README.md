@@ -10,7 +10,7 @@ app_file: main.py
 pinned: false
 ---
 
-# 🚦 SmartTraffic AI Assistant
+# SmartTraffic AI Assistant
 
 **An intelligent traffic decision and simulation system powered by Qwen, Groq, Python function calling, and Gradio.**
 
