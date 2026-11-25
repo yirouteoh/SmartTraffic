@@ -20,7 +20,7 @@ SmartTraffic is an academic AI-agent project that analyses traffic conditions at
 
 ## 🌐 Live Demo
 
-Launch the interactive application on **[Hugging Face Spaces](SmartTraffic AI Assistant - a Hugging Face Space by Rayzed0224)**.
+Launch the interactive application on **[Hugging Face Spaces](https://huggingface.co/spaces/Rayzed0224/smarttraffic-ai)**.
 
 ## 🖥️ Dashboard Preview
 
